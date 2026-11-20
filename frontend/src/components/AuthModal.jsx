@@ -1,5 +1,126 @@
 import React, { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff, X, ArrowRight, Check } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, X, Check } from 'lucide-react';
+
+/* ── REUSABLE HERO-STYLE 3D DATABASE CYLINDER (EXACT HERO MATERIALS) ── */
+function HeroCylinderTier({ cx, cy, rx, ry, h, type = 'plat', showHub = false }) {
+  const isCharcoal = type === 'charcoal';
+  return (
+    <g>
+      {/* Platter Outer Body Wall */}
+      <path
+        d={`M ${cx - rx} ${cy} L ${cx - rx} ${cy + h} A ${rx} ${ry} 0 0 0 ${cx + rx} ${cy + h} L ${cx + rx} ${cy} A ${rx} ${ry} 0 0 1 ${cx - rx} ${cy} Z`}
+        fill={isCharcoal ? 'url(#authBodyCharcoal)' : 'url(#authBodyPlat)'}
+        stroke="#18181b"
+        strokeWidth="1.2"
+      />
+      {/* Platter Top Rim Surface */}
+      <ellipse
+        cx={cx}
+        cy={cy}
+        rx={rx}
+        ry={ry}
+        fill={isCharcoal ? 'url(#authTopCharcoal)' : 'url(#authTopPlat)'}
+        stroke="#18181b"
+        strokeWidth="1.2"
+      />
+      {/* Status LED */}
+      <circle
+        cx={cx - rx * 0.55}
+        cy={cy + h * 0.58}
+        r="1.8"
+        fill={isCharcoal ? '#ffffff' : '#18181b'}
+      />
+      {/* Precision Vent / Lathe Groove */}
+      <path
+        d={`M ${cx - rx * 0.35} ${cy + h * 0.62} Q ${cx} ${cy + h * 0.78} ${cx + rx * 0.35} ${cy + h * 0.62}`}
+        stroke={isCharcoal ? '#ffffff' : '#18181b'}
+        strokeWidth="1.1"
+        fill="none"
+        strokeLinecap="round"
+        opacity={isCharcoal ? 0.75 : 0.85}
+      />
+      {/* Recessed Center Spindle Hub */}
+      {showHub && (
+        <>
+          <ellipse
+            cx={cx}
+            cy={cy}
+            rx={rx * 0.36}
+            ry={ry * 0.36}
+            fill="#18181b"
+            stroke="#3f3f46"
+            strokeWidth="1"
+          />
+          <ellipse
+            cx={cx}
+            cy={cy}
+            rx={rx * 0.18}
+            ry={ry * 0.18}
+            fill="#09090b"
+          />
+        </>
+      )}
+    </g>
+  );
+}
+
+function HeroCylinderWaist({ cx, cy, rx, ry, h }) {
+  const wrx = rx * 0.85;
+  const wry = ry * 0.78;
+  return (
+    <path
+      d={`M ${cx - wrx} ${cy - h} L ${cx - wrx} ${cy} A ${wrx} ${wry} 0 0 0 ${cx + wrx} ${cy} L ${cx + wrx} ${cy - h} A ${wrx} ${wry} 0 0 1 ${cx - wrx} ${cy - h} Z`}
+      fill="url(#authWaistShade)"
+      stroke="#18181b"
+      strokeWidth="1"
+    />
+  );
+}
+
+function HeroCylinder({
+  cx,
+  baseCy,
+  rx,
+  ry,
+  tierH = 18,
+  waistH = 6,
+  tiers = ['plat', 'charcoal', 'plat', 'plat'],
+  hasSpindle = false
+}) {
+  return (
+    <g>
+      {tiers.map((type, idx) => {
+        // idx = 0 is bottom tier (Tier 4 or Tier 3), idx = tiers.length - 1 is top tier
+        const cy = baseCy - idx * (tierH + waistH);
+        const isTop = idx === tiers.length - 1;
+        return (
+          <g key={idx}>
+            {/* Waist under this tier (only for idx > 0) */}
+            {idx > 0 && (
+              <HeroCylinderWaist
+                cx={cx}
+                cy={cy + tierH + waistH}
+                rx={rx}
+                ry={ry}
+                h={waistH}
+              />
+            )}
+            {/* The Platter Tier */}
+            <HeroCylinderTier
+              cx={cx}
+              cy={cy}
+              rx={rx}
+              ry={ry}
+              h={tierH}
+              type={type}
+              showHub={isTop && hasSpindle}
+            />
+          </g>
+        );
+      })}
+    </g>
+  );
+}
 
 export default function AuthModal({
   isOpen,
@@ -8,7 +129,6 @@ export default function AuthModal({
   onAuthSuccess
 }) {
   const [mode, setMode] = useState(initialMode); // 'signup' | 'login'
-  const [role, setRole] = useState('developer'); // 'developer' | 'enterprise'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -25,12 +145,12 @@ export default function AuthModal({
         onAuthSuccess({
           email,
           name: email.split('@')[0],
-          role: role === 'developer' ? 'Developer' : 'Enterprise Team'
+          role: 'Developer'
         });
       }
       setSubmitted(false);
       onClose();
-    }, 600);
+    }, 550);
   };
 
   return (
@@ -79,40 +199,7 @@ export default function AuthModal({
             </p>
           </div>
 
-          {/* 3. Account Type Radio Selector (Only for signup) */}
-          {mode === 'signup' && (
-            <div className="flex items-center gap-5 text-xs text-zinc-700 pt-0.5">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="radio"
-                  name="role"
-                  value="developer"
-                  checked={role === 'developer'}
-                  onChange={() => setRole('developer')}
-                  className="w-3.5 h-3.5 text-zinc-950 focus:ring-zinc-950 cursor-pointer accent-zinc-950"
-                />
-                <span className={role === 'developer' ? 'font-semibold text-zinc-950' : 'text-zinc-600'}>
-                  As a Developer
-                </span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="radio"
-                  name="role"
-                  value="enterprise"
-                  checked={role === 'enterprise'}
-                  onChange={() => setRole('enterprise')}
-                  className="w-3.5 h-3.5 text-zinc-950 focus:ring-zinc-950 cursor-pointer accent-zinc-950"
-                />
-                <span className={role === 'enterprise' ? 'font-semibold text-zinc-950' : 'text-zinc-600'}>
-                  As an Enterprise Team
-                </span>
-              </label>
-            </div>
-          )}
-
-          {/* 4. Google SSO Button */}
+          {/* 3. Google SSO Button */}
           <button
             type="button"
             onClick={() => {
@@ -143,7 +230,7 @@ export default function AuthModal({
             <span>Continue with Google</span>
           </button>
 
-          {/* 5. Divider with OR */}
+          {/* 4. Divider with OR */}
           <div className="relative flex items-center justify-center">
             <div className="border-t border-zinc-200 w-full" />
             <span className="bg-white px-3 text-[11px] font-semibold text-zinc-400 uppercase tracking-widest absolute">
@@ -151,7 +238,7 @@ export default function AuthModal({
             </span>
           </div>
 
-          {/* 6. Email & Password Form */}
+          {/* 5. Email & Password Form */}
           <form onSubmit={handleSubmit} className="space-y-3.5">
             {/* Email Input */}
             <div className="space-y-1 text-left">
@@ -213,7 +300,7 @@ export default function AuthModal({
             </button>
           </form>
 
-          {/* 7. Switch between Sign In / Sign Up */}
+          {/* 6. Switch between Sign In / Sign Up */}
           <div className="text-center text-xs text-zinc-500 pt-1">
             {mode === 'signup' ? (
               <span>
@@ -242,15 +329,15 @@ export default function AuthModal({
         </div>
 
         {/* ========================================================= */}
-        {/* RIGHT COLUMN: SOFT GREY + QUOTE + CYLINDER ILLUSTRATION    */}
+        {/* RIGHT COLUMN: SOFT GREY + QUOTE + 4 HERO DATABASE CYLINDERS */}
         {/* ========================================================= */}
         <div className="bg-[#f8f9fa] border-t md:border-t-0 md:border-l border-zinc-200/80 p-6 sm:p-9 flex flex-col justify-between text-left relative overflow-hidden select-none">
-          {/* Soft background mesh gradient */}
+          {/* Soft background ambient gradient */}
           <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-zinc-200/40 blur-3xl pointer-events-none" />
           <div className="absolute -bottom-12 -left-12 w-48 h-48 rounded-full bg-zinc-200/30 blur-3xl pointer-events-none" />
 
           {/* Top Section: Quote and Author */}
-          <div className="relative space-y-3 z-10">
+          <div className="relative space-y-2.5 z-10">
             {/* Opening quotation mark */}
             <div className="text-zinc-300 font-serif text-5xl leading-none -mb-3">
               “
@@ -260,7 +347,7 @@ export default function AuthModal({
               From natural language to SQL — making data accessible for everyone.
             </p>
 
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center justify-between pt-0.5">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-zinc-200 text-zinc-800 font-bold text-xs flex items-center justify-center font-mono border border-zinc-300/60 shadow-2xs">
                   AM
@@ -283,7 +370,7 @@ export default function AuthModal({
           </div>
 
           {/* Middle Section: Query Prompt Card -> Terminal Arrow */}
-          <div className="relative z-10 py-3 sm:py-4">
+          <div className="relative z-10 py-2 sm:py-3">
             <div className="flex items-center justify-between gap-2">
               {/* Natural language query bubble */}
               <div className="bg-white border border-zinc-200/90 rounded-xl px-3 py-2 shadow-xs max-w-[170px] text-left">
@@ -320,125 +407,133 @@ export default function AuthModal({
             </div>
           </div>
 
-          {/* Bottom Section: Technical Database Cylinder Graphic (Exact visual match) */}
-          <div className="relative z-10 w-full flex items-end justify-center pt-2">
+          {/* Bottom Section: 4 Hero Database Cylinders (Exact Hero Monument Shaders) */}
+          <div className="relative z-10 w-full flex items-end justify-center pt-1">
             <svg
-              viewBox="0 0 360 170"
-              className="w-full max-w-[340px] h-auto overflow-visible select-none"
+              viewBox="0 0 440 200"
+              className="w-full max-w-[390px] h-auto overflow-visible select-none"
             >
               <defs>
-                {/* Cylinder disk linear gradient */}
-                <linearGradient id="diskGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#f4f4f5" />
-                  <stop offset="30%" stopColor="#ffffff" />
-                  <stop offset="70%" stopColor="#ffffff" />
-                  <stop offset="100%" stopColor="#e4e4e7" />
-                </linearGradient>
-
-                {/* Disc top cap gradient */}
-                <linearGradient id="capGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                {/* Platinum / White Tier Body Shading (Exact match to Hero) */}
+                <linearGradient id="authBodyPlat" x1="0%" y1="0%" x2="100%" y2="0%">
                   <stop offset="0%" stopColor="#ffffff" />
-                  <stop offset="100%" stopColor="#f0f0f2" />
+                  <stop offset="25%" stopColor="#f8f9fa" />
+                  <stop offset="65%" stopColor="#edeef1" />
+                  <stop offset="92%" stopColor="#dcdfe4" />
+                  <stop offset="100%" stopColor="#cbd0d8" />
                 </linearGradient>
 
-                {/* Subtle base shadow */}
-                <radialGradient id="baseShadow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="#000000" stopOpacity="0.12" />
-                  <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+                {/* Top Rim Surface Gradient */}
+                <radialGradient id="authTopPlat" cx="45%" cy="40%" r="60%">
+                  <stop offset="0%" stopColor="#ffffff" />
+                  <stop offset="65%" stopColor="#f4f5f7" />
+                  <stop offset="100%" stopColor="#e5e7eb" />
                 </radialGradient>
+
+                {/* Charcoal Accent Tier Shading */}
+                <linearGradient id="authBodyCharcoal" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#3f3f46" />
+                  <stop offset="25%" stopColor="#27272a" />
+                  <stop offset="70%" stopColor="#18181b" />
+                  <stop offset="100%" stopColor="#09090b" />
+                </linearGradient>
+
+                <radialGradient id="authTopCharcoal" cx="45%" cy="40%" r="60%">
+                  <stop offset="0%" stopColor="#27272a" />
+                  <stop offset="70%" stopColor="#18181b" />
+                  <stop offset="100%" stopColor="#09090b" />
+                </radialGradient>
+
+                {/* Recessed Waist Neck Ring Shading */}
+                <linearGradient id="authWaistShade" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#71717a" />
+                  <stop offset="30%" stopColor="#52525b" />
+                  <stop offset="75%" stopColor="#27272a" />
+                  <stop offset="100%" stopColor="#18181b" />
+                </linearGradient>
+
+                {/* Soft Floor Shadow Blur */}
+                <filter id="authGroundBlur" x="-30%" y="-40%" width="160%" height="200%">
+                  <feGaussianBlur stdDeviation="6" />
+                </filter>
               </defs>
 
-              {/* 1. Base Elliptical Floor Shadows & Guides */}
-              <ellipse cx="180" cy="154" rx="140" ry="14" fill="none" stroke="#e4e4e7" strokeWidth="1" strokeDasharray="3 3" />
-              <ellipse cx="180" cy="154" rx="80" ry="10" fill="url(#baseShadow)" />
-              <ellipse cx="75" cy="148" rx="35" ry="5" fill="url(#baseShadow)" />
-              <ellipse cx="285" cy="148" rx="35" ry="5" fill="url(#baseShadow)" />
+              {/* 1. Floor Guides and Shadows for 4 Cylinders */}
+              <ellipse
+                cx="220"
+                cy="175"
+                rx="180"
+                ry="18"
+                fill="none"
+                stroke="#e4e4e7"
+                strokeWidth="1"
+                strokeDasharray="3 3"
+              />
+
+              {/* Rear Floor Shadows */}
+              <ellipse cx="85" cy="155" rx="46" ry="12" fill="#000000" opacity="0.12" filter="url(#authGroundBlur)" />
+              <ellipse cx="355" cy="155" rx="46" ry="12" fill="#000000" opacity="0.12" filter="url(#authGroundBlur)" />
+
+              {/* Front Floor Shadows */}
+              <ellipse cx="170" cy="180" rx="55" ry="15" fill="#000000" opacity="0.15" filter="url(#authGroundBlur)" />
+              <ellipse cx="275" cy="182" rx="54" ry="15" fill="#000000" opacity="0.15" filter="url(#authGroundBlur)" />
 
               {/* Connecting isometric guide lines */}
-              <path d="M 85 146 L 140 152 M 220 152 L 275 146" stroke="#d4d4d8" strokeWidth="1" strokeDasharray="2 3" />
-              <circle cx="85" cy="146" r="2" fill="#71717a" />
-              <circle cx="275" cy="146" r="2" fill="#71717a" />
+              <path d="M 85 155 L 170 180 M 275 182 L 355 155" stroke="#d4d4d8" strokeWidth="1" strokeDasharray="2 3" />
+              <circle cx="85" cy="155" r="2" fill="#71717a" />
+              <circle cx="170" cy="180" r="2" fill="#71717a" />
+              <circle cx="275" cy="182" r="2" fill="#71717a" />
+              <circle cx="355" cy="155" r="2" fill="#71717a" />
 
-              {/* 2. Left Floating Table / Spreadsheet Card */}
-              <g transform="translate(30, 80)">
-                <rect
-                  x="0"
-                  y="0"
-                  width="70"
-                  height="46"
-                  rx="6"
-                  fill="#ffffff"
-                  stroke="#27272a"
-                  strokeWidth="1.2"
-                  filter="drop-shadow(0 2px 4px rgba(0,0,0,0.06))"
-                />
-                {/* Header row */}
-                <rect x="0" y="0" width="70" height="12" rx="6" fill="#f4f4f5" />
-                <line x1="0" y1="12" x2="70" y2="12" stroke="#27272a" strokeWidth="1.2" />
-                {/* Columns */}
-                <line x1="24" y1="0" x2="24" y2="46" stroke="#e4e4e7" strokeWidth="0.8" />
-                <line x1="48" y1="0" x2="48" y2="46" stroke="#e4e4e7" strokeWidth="0.8" />
-                {/* Row lines */}
-                <line x1="0" y1="22" x2="70" y2="22" stroke="#e4e4e7" strokeWidth="0.8" />
-                <line x1="0" y1="32" x2="70" y2="32" stroke="#e4e4e7" strokeWidth="0.8" />
-                <line x1="0" y1="40" x2="70" y2="40" stroke="#e4e4e7" strokeWidth="0.8" />
-              </g>
+              {/* 2. Rear Cylinders (Rendered first for depth) */}
+              {/* CYLINDER 1 (Back-Left - 3 Tiers) */}
+              <HeroCylinder
+                cx={85}
+                baseCy={122}
+                rx={36}
+                ry={12}
+                tierH={14}
+                waistH={5}
+                tiers={['plat', 'charcoal', 'plat']}
+                hasSpindle={false}
+              />
 
-              {/* 3. Left Mini Database Cylinder */}
-              <g transform="translate(62, 120)">
-                {/* Cylinder Layer 2 */}
-                <path d="M 0 14 C 0 19, 26 19, 26 14 L 26 22 C 26 27, 0 27, 0 22 Z" fill="url(#diskGrad)" stroke="#27272a" strokeWidth="1.2" />
-                <ellipse cx="13" cy="14" rx="13" ry="4" fill="url(#capGrad)" stroke="#27272a" strokeWidth="1.2" />
-                {/* Cylinder Layer 1 (Top) */}
-                <path d="M 0 6 C 0 11, 26 11, 26 6 L 26 14 C 26 19, 0 19, 0 14 Z" fill="url(#diskGrad)" stroke="#27272a" strokeWidth="1.2" />
-                <ellipse cx="13" cy="6" rx="13" ry="4" fill="url(#capGrad)" stroke="#27272a" strokeWidth="1.2" />
-              </g>
+              {/* CYLINDER 2 (Back-Right - 3 Tiers) */}
+              <HeroCylinder
+                cx={355}
+                baseCy={122}
+                rx={36}
+                ry={12}
+                tierH={14}
+                waistH={5}
+                tiers={['plat', 'charcoal', 'plat']}
+                hasSpindle={false}
+              />
 
-              {/* 4. Center Main Database Cylinder (Tall 4 Layers) */}
-              <g transform="translate(142, 60)">
-                {/* Layer 4 (Bottom) */}
-                <path d="M 0 63 C 0 76, 76 76, 76 63 L 76 84 C 76 97, 0 97, 0 84 Z" fill="url(#diskGrad)" stroke="#18181b" strokeWidth="1.5" />
-                <ellipse cx="38" cy="63" rx="38" ry="11" fill="url(#capGrad)" stroke="#18181b" strokeWidth="1.4" />
+              {/* 3. Front Cylinders (Rendered in front for depth) */}
+              {/* CYLINDER 3 (Front-Center-Left - Monumental 4 Tiers with Hub) */}
+              <HeroCylinder
+                cx={170}
+                baseCy={146}
+                rx={46}
+                ry={16}
+                tierH={16}
+                waistH={5}
+                tiers={['plat', 'charcoal', 'plat', 'plat']}
+                hasSpindle={true}
+              />
 
-                {/* Layer 3 */}
-                <path d="M 0 42 C 0 55, 76 55, 76 42 L 76 63 C 76 76, 0 76, 0 63 Z" fill="url(#diskGrad)" stroke="#18181b" strokeWidth="1.5" />
-                <ellipse cx="38" cy="42" rx="38" ry="11" fill="url(#capGrad)" stroke="#18181b" strokeWidth="1.4" />
-
-                {/* Layer 2 */}
-                <path d="M 0 21 C 0 34, 76 34, 76 21 L 76 42 C 76 55, 0 55, 0 42 Z" fill="url(#diskGrad)" stroke="#18181b" strokeWidth="1.5" />
-                <ellipse cx="38" cy="21" rx="38" ry="11" fill="url(#capGrad)" stroke="#18181b" strokeWidth="1.4" />
-
-                {/* Layer 1 (Top layer) */}
-                <path d="M 0 0 C 0 13, 76 13, 76 0 L 76 21 C 76 34, 0 34, 0 21 Z" fill="url(#diskGrad)" stroke="#18181b" strokeWidth="1.5" />
-                <ellipse cx="38" cy="0" rx="38" ry="11" fill="url(#capGrad)" stroke="#18181b" strokeWidth="1.5" />
-              </g>
-
-              {/* 5. Right Floating Bar Chart Card */}
-              <g transform="translate(262, 85)">
-                <rect
-                  x="0"
-                  y="0"
-                  width="54"
-                  height="42"
-                  rx="6"
-                  fill="#ffffff"
-                  stroke="#27272a"
-                  strokeWidth="1.2"
-                  filter="drop-shadow(0 2px 4px rgba(0,0,0,0.06))"
-                />
-                {/* 4 chart bars */}
-                <rect x="8" y="24" width="6" height="12" rx="1.5" fill="#a1a1aa" />
-                <rect x="18" y="16" width="6" height="20" rx="1.5" fill="#71717a" />
-                <rect x="28" y="10" width="6" height="26" rx="1.5" fill="#18181b" />
-                <rect x="38" y="18" width="6" height="18" rx="1.5" fill="#71717a" />
-                <line x1="5" y1="36" x2="49" y2="36" stroke="#27272a" strokeWidth="0.8" />
-              </g>
-
-              {/* 6. Right Mini Database Cylinder */}
-              <g transform="translate(272, 120)">
-                <path d="M 0 6 C 0 11, 26 11, 26 6 L 26 18 C 26 23, 0 23, 0 18 Z" fill="url(#diskGrad)" stroke="#27272a" strokeWidth="1.2" />
-                <ellipse cx="13" cy="6" rx="13" ry="4" fill="url(#capGrad)" stroke="#27272a" strokeWidth="1.2" />
-              </g>
+              {/* CYLINDER 4 (Front-Center-Right - Monumental 4 Tiers with Hub) */}
+              <HeroCylinder
+                cx={275}
+                baseCy={148}
+                rx={46}
+                ry={16}
+                tierH={16}
+                waistH={5}
+                tiers={['plat', 'plat', 'charcoal', 'plat']}
+                hasSpindle={true}
+              />
             </svg>
           </div>
         </div>
