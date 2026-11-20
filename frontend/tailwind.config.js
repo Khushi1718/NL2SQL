@@ -30,6 +30,9 @@ export default {
         sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
         serif: ['Newsreader', 'Playfair Display', 'Georgia', 'Cambria', 'serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
+      },
+      backdropBlur: {
+        xs: '3px',
       }
     },
   },

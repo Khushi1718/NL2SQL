@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   User,
   Mail,
@@ -64,6 +65,16 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground,
   useEffect(() => {
     loadAccountData();
   }, []);
+
+  // Lock body scroll when logout modal is active
+  useEffect(() => {
+    if (showLogoutConfirm) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [showLogoutConfirm]);
 
   const loadAccountData = async () => {
     try {
@@ -479,8 +490,8 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground,
         </div>
       </div>
 
-      {/* LOGOUT CONFIRMATION MODAL */}
-      {showLogoutConfirm && (
+      {/* LOGOUT CONFIRMATION MODAL (Portaled to document.body) */}
+      {showLogoutConfirm && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
           {/* Backdrop click to close */}
           <div className="absolute inset-0" onClick={() => setShowLogoutConfirm(false)} />
@@ -510,7 +521,8 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground,
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

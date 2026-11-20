@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Database,
   Upload,
@@ -64,6 +65,16 @@ export default function MyDatabases({ onSelectDatabaseForQuery }) {
   useEffect(() => {
     loadDatabases();
   }, []);
+
+  // Lock body scroll when modal is active so fixed backdrop never shifts
+  useEffect(() => {
+    if (showUploadModal || inspectDb) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+  }, [showUploadModal, inspectDb]);
 
   const handleUploadSubmit = async (e) => {
     e.preventDefault();
@@ -163,7 +174,7 @@ export default function MyDatabases({ onSelectDatabaseForQuery }) {
   });
 
   return (
-    <div className="flex-1 px-4 sm:px-8 lg:px-12 py-6 sm:py-8 space-y-8 overflow-y-auto max-w-6xl mx-auto w-full text-left">
+    <div className="flex-1 px-4 sm:px-8 lg:px-12 py-6 sm:py-8 space-y-8 max-w-6xl mx-auto w-full text-left">
       {/* Page Header (Matching How It Works Editorial Theme) */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2">
         <div className="space-y-2">
@@ -356,8 +367,8 @@ export default function MyDatabases({ onSelectDatabaseForQuery }) {
         </div>
       )}
 
-      {/* UPLOAD MODAL (Clean Light Theme) */}
-      {showUploadModal && (
+      {/* UPLOAD MODAL (Clean Light Theme - Portaled to document.body) */}
+      {showUploadModal && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
           {/* Backdrop click to close */}
           <div className="absolute inset-0" onClick={() => setShowUploadModal(false)} />
@@ -477,11 +488,12 @@ export default function MyDatabases({ onSelectDatabaseForQuery }) {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* INSPECT TABLES & SCHEMA MODAL (Clean Light Theme) */}
-      {inspectDb && (
+      {/* INSPECT TABLES & SCHEMA MODAL (Clean Light Theme - Portaled to document.body) */}
+      {inspectDb && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
           {/* Backdrop click to close */}
           <div className="absolute inset-0" onClick={() => setInspectDb(null)} />
@@ -646,7 +658,8 @@ export default function MyDatabases({ onSelectDatabaseForQuery }) {
               ) : null}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
