@@ -1,0 +1,21 @@
+# Environment Variables
+.env
+backend/.env
+frontend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+*.sqlite
+*.sqlite3
+*.db
+backend/storage/
+backend/querymate.db
+
+# Node
+node_modules/
+frontend/dist/
+dist/
+.DS_Store

@@ -1,0 +1,6 @@
+student_id,name,email,major,gpa
+1,Alice Johnson,alice@college.edu,Computer Science,3.9
+2,Bob Smith,bob@college.edu,Mechanical Engineering,3.4
+3,Charlie Brown,charlie@college.edu,Physics,3.8
+4,Diana Prince,diana@college.edu,Data Science,3.95
+5,Evan Wright,evan@college.edu,Mathematics,3.6
