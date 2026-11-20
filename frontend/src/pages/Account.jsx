@@ -215,24 +215,21 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
   }
 
   return (
-    <div className="flex-1 px-4 sm:px-8 lg:px-12 py-6 sm:py-8 space-y-8 overflow-y-auto max-w-6xl mx-auto w-full text-left">
-      {/* Header Banner (Matching How It Works Editorial Theme) */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2 border-b border-zinc-100">
-        <div className="space-y-1.5">
-          <div className="inline-block px-3 py-1 rounded-full bg-zinc-100 border border-zinc-200/80 text-zinc-700 text-[11px] font-semibold">
-            Account & Security Settings
-          </div>
-          <h2 className="font-serif text-3xl sm:text-4xl font-medium text-zinc-950 tracking-tight">
-            Account Profile
+    <div className="flex-1 px-4 sm:px-8 lg:px-12 pt-2 sm:pt-3 pb-12 space-y-6 max-w-6xl mx-auto w-full text-left">
+      {/* Header Banner */}
+      <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+        <div>
+          <h2 className="font-serif text-2xl sm:text-3xl font-medium text-zinc-950 tracking-tight">
+            Account Settings
           </h2>
-          <p className="text-sm text-zinc-500 font-normal leading-relaxed max-w-xl">
-            Manage your credentials, update your email address, and control your active session.
+          <p className="text-xs sm:text-sm text-zinc-500 font-normal">
+            Manage your personal profile, credentials, and security.
           </p>
         </div>
 
         <button
           onClick={loadAccountData}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 shadow-2xs transition-all cursor-pointer self-start sm:self-auto"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 shadow-2xs transition-all cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-zinc-800' : 'text-zinc-500'}`} />
           <span>Refresh</span>
@@ -243,9 +240,9 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
         {/* ======================================================== */}
-        {/* LEFT COLUMN: Clean Card with Circle Picture, Name & Mail */}
+        {/* LEFT COLUMN: Sticky Card with Picture, Name, Mail, Logout*/}
         {/* ======================================================== */}
-        <div className="lg:col-span-4 bg-white border border-zinc-200/80 rounded-3xl p-6 sm:p-8 flex flex-col items-center text-center shadow-2xs space-y-6">
+        <div className="lg:col-span-4 lg:sticky lg:top-24 self-start bg-white border border-zinc-200/80 rounded-3xl p-6 sm:p-8 flex flex-col items-center text-center shadow-2xs space-y-6">
           
           {/* Circular Account Picture */}
           <div className="relative group">
@@ -298,7 +295,7 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
         </div>
 
         {/* ======================================================== */}
-        {/* RIGHT COLUMN: Change Email, Change Password, Logout      */}
+        {/* RIGHT COLUMN: Change Email & Change Password             */}
         {/* ======================================================== */}
         <div className="lg:col-span-8 space-y-6">
           
@@ -459,160 +456,6 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
                 </button>
               </div>
             </form>
-          </div>
-
-          {/* CARD 3: LOGOUT / SIGN OUT */}
-          <div className="bg-white border border-zinc-200/80 rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs text-left">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <LogOut className="w-4 h-4 text-zinc-800" />
-                <h4 className="font-serif text-lg font-medium tracking-tight text-zinc-950">
-                  Active Session
-                </h4>
-              </div>
-              <p className="text-xs text-zinc-500 font-normal leading-relaxed">
-                Sign out of your workspace session on this browser.
-              </p>
-            </div>
-
-            <button
-              onClick={() => setShowLogoutConfirm(true)}
-              className="px-6 py-2.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold shadow-2xs transition-all cursor-pointer shrink-0 active:scale-95"
-            >
-              Log Out
-            </button>
-          </div>
-
-          {/* OPTIONAL COLLAPSIBLE: AI & Gemini API Configuration */}
-          <div className="bg-white border border-zinc-200/80 rounded-3xl overflow-hidden shadow-2xs text-left">
-            <button
-              type="button"
-              onClick={() => setShowAiSettings(!showAiSettings)}
-              className="w-full px-6 py-4 bg-zinc-50/70 hover:bg-zinc-100/70 border-b border-zinc-100 flex items-center justify-between transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-zinc-700" />
-                <span className="font-serif text-base font-medium text-zinc-950">
-                  AI Provider & Gemini Key
-                </span>
-                <span className="text-xs text-zinc-400 font-normal hidden sm:inline">
-                  (Optional advanced settings)
-                </span>
-              </div>
-              {showAiSettings ? (
-                <ChevronUp className="w-4 h-4 text-zinc-500" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-zinc-500" />
-              )}
-            </button>
-
-            {showAiSettings && (
-              <form onSubmit={handleSaveAi} className="p-6 sm:p-8 space-y-5 bg-white">
-                {saveStatus && (
-                  <div className={`p-3.5 rounded-2xl text-xs flex items-center gap-2 ${
-                    saveStatus.type === 'success'
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      : 'bg-rose-50 text-rose-800 border border-rose-200'
-                  }`}>
-                    {saveStatus.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-                    <span>{saveStatus.message}</span>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
-                    Google Gemini API Key:
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showKey ? 'text' : 'password'}
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder={settings?.masked_api_key ? `Existing Key: ${settings.masked_api_key}` : 'Enter your Gemini API key...'}
-                      className="w-full pl-4 pr-10 py-2.5 rounded-xl border border-zinc-200 text-xs font-mono text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowKey(!showKey)}
-                      className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600 cursor-pointer"
-                    >
-                      {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
-                      Model:
-                    </label>
-                    <select
-                      value={model}
-                      onChange={(e) => setModel(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 bg-white text-zinc-900 font-medium cursor-pointer focus:outline-none focus:border-zinc-950 shadow-2xs"
-                    >
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fastest)</option>
-                      <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Reasoning)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
-                      Execution Mode:
-                    </label>
-                    <div className="flex items-center gap-3 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setDemoMode(!demoMode)}
-                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                          demoMode ? 'bg-zinc-950' : 'bg-zinc-300'
-                        }`}
-                      >
-                        <span
-                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
-                            demoMode ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-                      <span className="text-xs text-zinc-600 font-normal">
-                        {demoMode ? 'Heuristic Demo Mode' : 'Live Cloud API'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-zinc-100">
-                  <button
-                    type="button"
-                    onClick={handleTestKey}
-                    disabled={isTesting}
-                    className="px-4 py-2 rounded-full border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-800 text-xs font-semibold shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                  >
-                    {isTesting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5 text-zinc-500" />}
-                    <span>{isTesting ? 'Verifying...' : 'Verify Key'}</span>
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="px-5 py-2 rounded-full bg-black hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-40"
-                  >
-                    {isSaving ? 'Saving...' : 'Save AI Config'}
-                  </button>
-                </div>
-
-                {testStatus && (
-                  <div className={`p-3 rounded-2xl text-xs flex items-center gap-2 ${
-                    testStatus.type === 'success'
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                      : 'bg-rose-50 text-rose-800 border border-rose-200'
-                  }`}>
-                    {testStatus.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
-                    <span>{testStatus.message}</span>
-                  </div>
-                )}
-              </form>
-            )}
           </div>
 
         </div>
