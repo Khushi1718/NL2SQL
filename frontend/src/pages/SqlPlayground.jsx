@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Database,
+  Terminal,
   Table as TableIcon
 } from 'lucide-react';
 import SqlCodeEditor from '../components/SqlCodeEditor';
