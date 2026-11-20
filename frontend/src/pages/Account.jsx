@@ -481,8 +481,11 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground,
 
       {/* LOGOUT CONFIRMATION MODAL */}
       {showLogoutConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white border border-zinc-200/80 rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
+          {/* Backdrop click to close */}
+          <div className="absolute inset-0" onClick={() => setShowLogoutConfirm(false)} />
+
+          <div className="relative z-10 bg-white border border-zinc-200/90 rounded-3xl max-w-sm w-full p-6 text-center shadow-[0_25px_70px_-15px_rgba(0,0,0,0.4)] space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-100">
               <LogOut className="w-5 h-5" />
             </div>

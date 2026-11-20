@@ -184,12 +184,12 @@ export default function AuthModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/45 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
       {/* Backdrop click to close */}
       <div className="absolute inset-0" onClick={onClose} />
 
       {/* Main Split-Screen Modal Box */}
-      <div className="relative z-10 w-full max-w-[920px] bg-white rounded-3xl shadow-2xl overflow-hidden border border-zinc-200/90 grid grid-cols-1 md:grid-cols-2">
+      <div className="relative z-10 w-full max-w-[920px] bg-white rounded-3xl shadow-[0_25px_70px_-15px_rgba(0,0,0,0.4)] overflow-hidden border border-zinc-200/90 grid grid-cols-1 md:grid-cols-2">
         {/* Close Button */}
         <button
           onClick={onClose}

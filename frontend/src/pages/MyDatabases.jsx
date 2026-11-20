@@ -358,13 +358,16 @@ export default function MyDatabases({ onSelectDatabaseForQuery }) {
 
       {/* UPLOAD MODAL (Clean Light Theme) */}
       {showUploadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white border border-zinc-200/80 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 text-left">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
+          {/* Backdrop click to close */}
+          <div className="absolute inset-0" onClick={() => setShowUploadModal(false)} />
+
+          <div className="relative z-10 bg-white border border-zinc-200/90 rounded-2xl sm:rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-[0_25px_70px_-15px_rgba(0,0,0,0.4)] animate-in fade-in zoom-in-95 duration-150 text-left">
             <button
               onClick={() => setShowUploadModal(false)}
-              className="absolute right-5 top-5 text-zinc-400 hover:text-zinc-950 p-1 cursor-pointer transition-colors"
+              className="absolute right-5 top-5 w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 hover:text-zinc-950 flex items-center justify-center transition-colors cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
             <div className="flex items-center gap-3 mb-6">
@@ -479,8 +482,11 @@ export default function MyDatabases({ onSelectDatabaseForQuery }) {
 
       {/* INSPECT TABLES & SCHEMA MODAL (Clean Light Theme) */}
       {inspectDb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white border border-zinc-200/80 rounded-3xl max-w-4xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 text-left">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
+          {/* Backdrop click to close */}
+          <div className="absolute inset-0" onClick={() => setInspectDb(null)} />
+
+          <div className="relative z-10 bg-white border border-zinc-200/90 rounded-2xl sm:rounded-3xl max-w-4xl w-full max-h-[85vh] flex flex-col shadow-[0_25px_70px_-15px_rgba(0,0,0,0.4)] overflow-hidden animate-in fade-in zoom-in-95 duration-150 text-left">
             {/* Modal Header */}
             <div className="px-6 py-4.5 bg-zinc-50/70 border-b border-zinc-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
