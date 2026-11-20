@@ -67,7 +67,7 @@ export default function App() {
       />
 
       {/* Main Page Content */}
-      <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
+      <main className={`flex-1 flex flex-col overflow-y-auto bg-transparent ${activePage !== 'home' ? 'pt-24 sm:pt-28' : ''}`}>
         {/* 1. HOME PAGE */}
         {activePage === 'home' && (
           <Home

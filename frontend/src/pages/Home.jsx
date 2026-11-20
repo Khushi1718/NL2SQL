@@ -48,7 +48,7 @@ export default function Home({ onNavigateToPlayground, onNavigateToDatabases, on
   const faqList = [
     {
       category: 'offer',
-      icon: Smile,
+      icon: HelpCircle,
       question: "Can I query databases using natural English without writing SQL?",
       answer: "Yes! NL2SQL translates plain English questions into verified SQL. Simply connect your database or upload a CSV, type your question, and get instant results with interactive tables and charts."
     },
