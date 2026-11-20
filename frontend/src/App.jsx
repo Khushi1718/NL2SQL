@@ -21,6 +21,7 @@ export default function App() {
   // Auth state & modal control
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('signup');
+  const [pendingNavigation, setPendingNavigation] = useState(null);
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem('nl2sql_user');
@@ -35,6 +36,21 @@ export default function App() {
     setIsAuthOpen(true);
   };
 
+  const handleNavigate = (page) => {
+    if (page === 'home') {
+      setActivePage('home');
+      return;
+    }
+    // Protected pages: playground, databases, account, etc.
+    if (!currentUser) {
+      setPendingNavigation({ page });
+      setAuthMode('signup');
+      setIsAuthOpen(true);
+      return;
+    }
+    setActivePage(page);
+  };
+
   const handleAuthSuccess = (user) => {
     setCurrentUser(user);
     try {
@@ -42,6 +58,26 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+    if (pendingNavigation) {
+      if (pendingNavigation.action) {
+        pendingNavigation.action();
+      } else if (pendingNavigation.page) {
+        setActivePage(pendingNavigation.page);
+      }
+      setPendingNavigation(null);
+    } else {
+      setActivePage('playground');
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem('nl2sql_user');
+    } catch (e) {
+      console.error(e);
+    }
+    setActivePage('home');
   };
 
   const loadInitialData = async () => {
@@ -86,13 +122,8 @@ export default function App() {
       {/* Top Navigation Bar */}
       <Navbar
         activePage={activePage}
-        setActivePage={setActivePage}
-        healthInfo={healthInfo}
+        onNavigate={handleNavigate}
         databases={databases}
-        selectedDbId={selectedDbId}
-        onSelectDatabase={(id) => setSelectedDbId(id)}
-        onOpenAuth={handleOpenAuth}
-        currentUser={currentUser}
       />
 
       {/* Split-Screen Auth Modal (Exact design match to reference mockup) */}
@@ -108,9 +139,20 @@ export default function App() {
         {/* 1. HOME PAGE */}
         {activePage === 'home' && (
           <Home
-            onNavigateToPlayground={() => setActivePage('playground')}
-            onNavigateToDatabases={() => setActivePage('databases')}
+            onNavigateToPlayground={() => handleNavigate('playground')}
+            onNavigateToDatabases={() => handleNavigate('databases')}
             onSelectDemoQuery={(q) => {
+              if (!currentUser) {
+                setPendingNavigation({
+                  action: () => {
+                    setPlaygroundQuery(q);
+                    setActivePage('playground');
+                  }
+                });
+                setAuthMode('signup');
+                setIsAuthOpen(true);
+                return;
+              }
               setPlaygroundQuery(q);
               setActivePage('playground');
             }}
@@ -123,7 +165,7 @@ export default function App() {
             selectedDbId={selectedDbId}
             onSelectDbId={(id) => setSelectedDbId(id)}
             initialQuery={playgroundQuery}
-            onNavigateToDatabases={() => setActivePage('databases')}
+            onNavigateToDatabases={() => handleNavigate('databases')}
             onOpenPromptTab={handleOpenPromptInspector}
           />
         )}
@@ -138,9 +180,10 @@ export default function App() {
         {/* 4. ACCOUNT & SETTINGS PAGE */}
         {activePage === 'account' && (
           <Account
-            onNavigateToDatabases={() => setActivePage('databases')}
-            onNavigateToPlayground={() => setActivePage('playground')}
+            onNavigateToDatabases={() => handleNavigate('databases')}
+            onNavigateToPlayground={() => handleNavigate('playground')}
             onOpenAuth={handleOpenAuth}
+            onLogout={handleLogout}
           />
         )}
 

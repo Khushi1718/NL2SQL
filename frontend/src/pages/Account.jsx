@@ -21,7 +21,7 @@ import {
   fetchAllDatabases
 } from '../services/api';
 
-export default function Account({ onNavigateToDatabases, onNavigateToPlayground, onOpenAuth }) {
+export default function Account({ onNavigateToDatabases, onNavigateToPlayground, onOpenAuth, onLogout }) {
   const [settings, setSettings] = useState(null);
   const [databases, setDatabases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -137,6 +137,9 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground,
   const handleLogout = () => {
     setLoggedOut(true);
     setShowLogoutConfirm(false);
+    if (onLogout) {
+      onLogout();
+    }
   };
 
   // Handle AI Key Save
