@@ -224,10 +224,7 @@ def get_database_meta(database_id: str) -> Optional[Dict[str, Any]]:
 
 def list_databases_meta(user_email: Optional[str] = None) -> List[Dict[str, Any]]:
     """Lists registered databases from MongoDB or persistent registry belonging exclusively to user_email."""
-    if not user_email:
-        return []
-
-    norm_email = user_email.strip().lower()
+    norm_email = (user_email or "user@nl2sql.local").strip().lower()
     seen_ids = set()
     results = []
 

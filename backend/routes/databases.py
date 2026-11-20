@@ -19,6 +19,8 @@ def list_all_databases(
     Never returns other users' datasets or global sample databases.
     """
     email = (user_email or x_user_email or "").strip().lower()
+    if not email:
+        email = "user@nl2sql.local"
     mongo_ok, mongo_msg = check_mongo_connection()
     databases = DatabaseManager.list_databases(user_email=email)
 
@@ -120,6 +122,8 @@ async def upload_database(
         )
 
     email = (user_email or x_user_email or "").strip().lower()
+    if not email:
+        email = "user@nl2sql.local"
     uid = user_id or x_user_id or ""
 
     try:

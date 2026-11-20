@@ -23,6 +23,17 @@ api.interceptors.request.use((config) => {
   } catch (e) {
     // ignore
   }
+
+  // Ensure default fallback user email if none is saved
+  if (!config.headers['X-User-Email']) {
+    config.headers['X-User-Email'] = 'user@nl2sql.local';
+  }
+
+  // If payload is FormData, remove manual Content-Type header so the browser sets multipart/form-data with boundary
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+
   return config;
 });
 
@@ -81,8 +92,9 @@ export const uploadDatabaseFile = async (file, databaseName, tableName = null) =
   } catch (e) {
     // ignore
   }
+  // Do NOT pass manual Content-Type: multipart/form-data so Axios and browser correctly set boundary
   const res = await api.post('/databases/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    transformRequest: [(data) => data],
   });
   return res.data;
 };

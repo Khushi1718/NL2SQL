@@ -227,10 +227,7 @@ class DatabaseManager:
         Lists registered databases from MongoDB and persistent registry belonging exclusively
         to the authenticated user. Never returns another user's datasets or default benchmark databases.
         """
-        if not user_email:
-            return []
-
-        norm_email = user_email.strip().lower()
+        norm_email = (user_email or "user@nl2sql.local").strip().lower()
         dbs = list_databases_meta(user_email=norm_email)
         for d in dbs:
             db_id = d.get("database_id")
