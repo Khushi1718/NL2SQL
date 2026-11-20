@@ -4,7 +4,9 @@ import { Database, Terminal, User } from 'lucide-react';
 export default function Navbar({
   activePage,
   setActivePage,
-  databases = []
+  databases = [],
+  onOpenAuth,
+  currentUser = null
 }) {
   return (
     <header className="fixed top-5 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
@@ -66,8 +68,20 @@ export default function Navbar({
               ? 'bg-white/25 text-white font-bold shadow-xs'
               : 'text-white/85 hover:text-white hover:bg-white/10'
               }`}
+            title="Account Settings"
           >
             <User className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Divider */}
+          <span className="w-px h-3.5 bg-white/25 mx-0.5 hidden sm:inline-block" />
+
+          {/* 4. Login / Sign Up Button */}
+          <button
+            onClick={() => onOpenAuth ? onOpenAuth('signup') : setActivePage('account')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-zinc-950 hover:bg-zinc-100 font-bold text-xs shadow-xs transition-all duration-200 cursor-pointer active:scale-95"
+          >
+            <span>{currentUser ? currentUser.name || 'Account' : 'Log In / Sign Up'}</span>
           </button>
         </nav>
 

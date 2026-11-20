@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
+import AuthModal from './components/AuthModal';
 import Home from './pages/Home';
 import SqlPlayground from './pages/SqlPlayground';
 import MyDatabases from './pages/MyDatabases';
@@ -16,6 +17,32 @@ export default function App() {
   const [healthInfo, setHealthInfo] = useState(null);
   const [playgroundQuery, setPlaygroundQuery] = useState('');
   const [promptInspectQuestion, setPromptInspectQuestion] = useState('');
+  
+  // Auth state & modal control
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('signup');
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('nl2sql_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const handleOpenAuth = (mode = 'signup') => {
+    setAuthMode(mode);
+    setIsAuthOpen(true);
+  };
+
+  const handleAuthSuccess = (user) => {
+    setCurrentUser(user);
+    try {
+      localStorage.setItem('nl2sql_user', JSON.stringify(user));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const loadInitialData = async () => {
     try {
@@ -64,6 +91,16 @@ export default function App() {
         databases={databases}
         selectedDbId={selectedDbId}
         onSelectDatabase={(id) => setSelectedDbId(id)}
+        onOpenAuth={handleOpenAuth}
+        currentUser={currentUser}
+      />
+
+      {/* Split-Screen Auth Modal (Exact design match to reference mockup) */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        initialMode={authMode}
+        onAuthSuccess={handleAuthSuccess}
       />
 
       {/* Main Page Content */}
@@ -103,6 +140,7 @@ export default function App() {
           <Account
             onNavigateToDatabases={() => setActivePage('databases')}
             onNavigateToPlayground={() => setActivePage('playground')}
+            onOpenAuth={handleOpenAuth}
           />
         )}
 

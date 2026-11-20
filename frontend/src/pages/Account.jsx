@@ -21,7 +21,7 @@ import {
   fetchAllDatabases
 } from '../services/api';
 
-export default function Account({ onNavigateToDatabases, onNavigateToPlayground }) {
+export default function Account({ onNavigateToDatabases, onNavigateToPlayground, onOpenAuth }) {
   const [settings, setSettings] = useState(null);
   const [databases, setDatabases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -205,7 +205,10 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
           Your workspace session has been terminated safely.
         </p>
         <button
-          onClick={() => setLoggedOut(false)}
+          onClick={() => {
+            setLoggedOut(false);
+            if (onOpenAuth) onOpenAuth('login');
+          }}
           className="px-6 py-2.5 rounded-full bg-black hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
         >
           Sign Back In
