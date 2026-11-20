@@ -20,6 +20,7 @@ from routes.explorer import router as explorer_router
 from routes.history import router as history_router
 from routes.prompt import router as prompt_router
 from routes.settings import router as settings_router
+from routes.auth import router as auth_router
 from services.llm_service import llm_service
 
 @asynccontextmanager
@@ -64,6 +65,7 @@ app.include_router(explorer_router)
 app.include_router(history_router)
 app.include_router(prompt_router)
 app.include_router(settings_router)
+app.include_router(auth_router)
 
 @app.get("/api/health")
 def health_check():

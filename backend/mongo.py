@@ -84,6 +84,7 @@ def init_mongo_indexes():
     try:
         db.databases.create_index("database_id", unique=True)
         db.query_history.create_index([("database_id", pymongo.ASCENDING), ("created_at", pymongo.DESCENDING)])
+        db.users.create_index("email", unique=True)
     except Exception as e:
         print(f"[MongoDB Index Warning] {e}")
 
@@ -210,3 +211,184 @@ def delete_query_history_item_mongo(query_id: str) -> bool:
     if res.deleted_count == 0 and ObjectId.is_valid(query_id):
         res = db.query_history.delete_one({"_id": ObjectId(query_id)})
     return res.deleted_count > 0
+
+
+# --- User Accounts & Authentication MongoDB Collections ---
+
+import hashlib
+import secrets
+import json
+from pathlib import Path
+
+FALLBACK_USERS_FILE = Path(__file__).parent / "data" / "users_fallback.json"
+
+def _ensure_fallback_file():
+    FALLBACK_USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not FALLBACK_USERS_FILE.exists():
+        FALLBACK_USERS_FILE.write_text("[]", encoding="utf-8")
+
+def _load_fallback_users() -> List[Dict[str, Any]]:
+    _ensure_fallback_file()
+    try:
+        return json.loads(FALLBACK_USERS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+def _save_fallback_users(users: List[Dict[str, Any]]):
+    _ensure_fallback_file()
+    FALLBACK_USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
+
+def _hash_password(password: str, salt: Optional[str] = None) -> Tuple[str, str]:
+    if not salt:
+        salt = secrets.token_hex(16)
+    hashed = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    return hashed, salt
+
+def save_user_mongo(email: str, password: str, name: Optional[str] = None, role: str = "Developer") -> Dict[str, Any]:
+    """Saves a new user account into MongoDB 'users' collection."""
+    clean_email = email.strip().lower()
+    hashed, salt = _hash_password(password)
+    user_name = (name or clean_email.split('@')[0]).strip()
+    
+    doc = {
+        "email": clean_email,
+        "name": user_name,
+        "password_hash": hashed,
+        "salt": salt,
+        "role": role,
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat()
+    }
+    
+    db = get_mongo_db()
+    if db is not None:
+        existing = db.users.find_one({"email": clean_email})
+        if existing:
+            raise ValueError("An account with this email address already exists.")
+        res = db.users.insert_one(doc)
+        user_id = str(res.inserted_id)
+    else:
+        # File fallback
+        users = _load_fallback_users()
+        for u in users:
+            if u.get("email") == clean_email:
+                raise ValueError("An account with this email address already exists.")
+        user_id = f"user_{secrets.token_hex(8)}"
+        doc["_id"] = user_id
+        users.append(doc)
+        _save_fallback_users(users)
+        
+    return {
+        "id": user_id,
+        "email": clean_email,
+        "name": user_name,
+        "role": role,
+        "created_at": doc["created_at"]
+    }
+
+def authenticate_user_mongo(email: str, password: str) -> Optional[Dict[str, Any]]:
+    """Verifies credentials against MongoDB 'users' collection."""
+    clean_email = email.strip().lower()
+    db = get_mongo_db()
+    user_doc = None
+    if db is not None:
+        user_doc = db.users.find_one({"email": clean_email})
+    else:
+        users = _load_fallback_users()
+        for u in users:
+            if u.get("email") == clean_email:
+                user_doc = u
+                break
+                
+    if not user_doc:
+        return None
+        
+    salt = user_doc.get("salt", "")
+    expected = user_doc.get("password_hash", "")
+    actual, _ = _hash_password(password, salt)
+    if actual != expected:
+        return None
+        
+    return {
+        "id": str(user_doc.get("_id", clean_email)),
+        "email": user_doc["email"],
+        "name": user_doc.get("name", clean_email.split('@')[0]),
+        "role": user_doc.get("role", "Developer"),
+        "created_at": user_doc.get("created_at", datetime.utcnow().isoformat())
+    }
+
+def update_user_password_mongo(email: str, current_password: str, new_password: str) -> bool:
+    """Updates user password in MongoDB after validating current password."""
+    clean_email = email.strip().lower()
+    user = authenticate_user_mongo(clean_email, current_password)
+    if not user:
+        raise ValueError("Current password is incorrect.")
+        
+    new_hash, new_salt = _hash_password(new_password)
+    now_str = datetime.utcnow().isoformat()
+    
+    db = get_mongo_db()
+    if db is not None:
+        db.users.update_one(
+            {"email": clean_email},
+            {"$set": {
+                "password_hash": new_hash,
+                "salt": new_salt,
+                "updated_at": now_str
+            }}
+        )
+    else:
+        users = _load_fallback_users()
+        for u in users:
+            if u.get("email") == clean_email:
+                u["password_hash"] = new_hash
+                u["salt"] = new_salt
+                u["updated_at"] = now_str
+                break
+        _save_fallback_users(users)
+    return True
+
+def update_user_email_mongo(old_email: str, new_email: str) -> Dict[str, Any]:
+    """Updates user email in MongoDB."""
+    clean_old = old_email.strip().lower()
+    clean_new = new_email.strip().lower()
+    now_str = datetime.utcnow().isoformat()
+    
+    db = get_mongo_db()
+    if db is not None:
+        if db.users.find_one({"email": clean_new}):
+            raise ValueError("An account with the new email already exists.")
+        db.users.update_one(
+            {"email": clean_old},
+            {"$set": {
+                "email": clean_new,
+                "updated_at": now_str
+            }}
+        )
+        updated = db.users.find_one({"email": clean_new})
+        return {
+            "id": str(updated["_id"]),
+            "email": updated["email"],
+            "name": updated.get("name", clean_new.split('@')[0]),
+            "role": updated.get("role", "Developer")
+        }
+    else:
+        users = _load_fallback_users()
+        for u in users:
+            if u.get("email") == clean_new:
+                raise ValueError("An account with the new email already exists.")
+        target = None
+        for u in users:
+            if u.get("email") == clean_old:
+                u["email"] = clean_new
+                u["updated_at"] = now_str
+                target = u
+                break
+        _save_fallback_users(users)
+        return {
+            "id": target.get("_id", clean_new) if target else clean_new,
+            "email": clean_new,
+            "name": target.get("name", clean_new.split('@')[0]) if target else clean_new.split('@')[0],
+            "role": target.get("role", "Developer") if target else "Developer"
+        }
+

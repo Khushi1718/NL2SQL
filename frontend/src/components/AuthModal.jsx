@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff, X, Check } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, X, Check, AlertCircle, RefreshCw } from 'lucide-react';
+import { signupUser, loginUser } from '../services/api';
 
 /* ── REUSABLE HERO-STYLE 3D DATABASE CYLINDER (EXACT HERO MATERIALS) ── */
 function HeroCylinderTier({ cx, cy, rx, ry, h, type = 'plat', showHub = false }) {
@@ -132,25 +133,54 @@ export default function AuthModal({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email || !password) return;
-    setSubmitted(true);
-    setTimeout(() => {
-      if (onAuthSuccess) {
-        onAuthSuccess({
-          email,
+    setLoading(true);
+    setErrorMsg('');
+
+    try {
+      let res;
+      if (mode === 'signup') {
+        res = await signupUser({
+          email: email.trim(),
+          password,
           name: email.split('@')[0],
           role: 'Developer'
         });
+      } else {
+        res = await loginUser({
+          email: email.trim(),
+          password
+        });
       }
-      setSubmitted(false);
-      onClose();
-    }, 550);
+
+      const userData = res.user || {
+        email: email.trim(),
+        name: email.split('@')[0],
+        role: 'Developer'
+      };
+
+      setSubmitted(true);
+      setTimeout(() => {
+        if (onAuthSuccess) {
+          onAuthSuccess(userData);
+        }
+        setLoading(false);
+        setSubmitted(false);
+        onClose();
+      }, 400);
+    } catch (err) {
+      setLoading(false);
+      const detail = err.response?.data?.detail;
+      setErrorMsg(typeof detail === 'string' ? detail : 'Authentication failed. Please verify your credentials.');
+    }
   };
 
   return (
@@ -283,13 +313,26 @@ export default function AuthModal({
               </div>
             </div>
 
+            {/* Error Message */}
+            {errorMsg && (
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={submitted}
-              className="w-full py-2.5 px-4 rounded-full bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-semibold tracking-tight transition-all shadow-sm cursor-pointer active:scale-[0.99] flex items-center justify-center gap-1.5 mt-2"
+              disabled={loading || submitted}
+              className="w-full py-2.5 px-4 rounded-full bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-semibold tracking-tight transition-all shadow-sm cursor-pointer active:scale-[0.99] flex items-center justify-center gap-1.5 mt-2 disabled:opacity-75"
             >
-              {submitted ? (
+              {loading ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Connecting to MongoDB...</span>
+                </>
+              ) : submitted ? (
                 <>
                   <Check className="w-3.5 h-3.5" />
                   <span>Success</span>
@@ -337,7 +380,7 @@ export default function AuthModal({
           <div className="absolute -bottom-12 -left-12 w-48 h-48 rounded-full bg-zinc-200/30 blur-3xl pointer-events-none" />
 
           {/* Top Section: Quote and Author */}
-          <div className="relative space-y-2.5 z-10">
+          <div className="relative space-y-3 z-10 pt-2">
             {/* Opening quotation mark */}
             <div className="text-zinc-300 font-serif text-5xl leading-none -mb-3">
               “
@@ -347,17 +390,17 @@ export default function AuthModal({
               From natural language to SQL — making data accessible for everyone.
             </p>
 
-            <div className="flex items-center justify-between pt-0.5">
+            <div className="flex items-center justify-between pt-1">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-zinc-200 text-zinc-800 font-bold text-xs flex items-center justify-center font-mono border border-zinc-300/60 shadow-2xs">
-                  AM
+                <div className="w-8 h-8 rounded-full bg-zinc-900 text-white font-bold text-xs flex items-center justify-center font-mono shadow-2xs">
+                  KN
                 </div>
                 <div>
                   <span className="block text-xs font-semibold text-zinc-900 leading-tight">
-                    Alex Mitchell
+                    Khushi Nain
                   </span>
                   <span className="block text-[11px] text-zinc-500 font-normal">
-                    Researcher, NL2SQL Project
+                    Creator & Lead Researcher, NL2SQL Project
                   </span>
                 </div>
               </div>
@@ -369,49 +412,11 @@ export default function AuthModal({
             </div>
           </div>
 
-          {/* Middle Section: Query Prompt Card -> Terminal Arrow */}
-          <div className="relative z-10 py-2 sm:py-3">
-            <div className="flex items-center justify-between gap-2">
-              {/* Natural language query bubble */}
-              <div className="bg-white border border-zinc-200/90 rounded-xl px-3 py-2 shadow-xs max-w-[170px] text-left">
-                <span className="text-[10px] font-mono text-zinc-700 leading-tight block">
-                  Show me total sales by region
-                </span>
-              </div>
-
-              {/* Connecting curved arrow */}
-              <div className="text-zinc-400 shrink-0 px-1">
-                <svg viewBox="0 0 40 24" className="w-8 h-5 fill-none stroke-current stroke-[1.8] stroke-linecap-round stroke-linejoin-round">
-                  <path d="M4 16 C 16 4, 24 4, 34 10" />
-                  <polyline points="28 10 34 10 33 4" />
-                </svg>
-              </div>
-
-              {/* SQL terminal card */}
-              <div className="bg-[#1f2023] text-zinc-200 rounded-xl p-2.5 shadow-md border border-zinc-800 text-left w-[180px] shrink-0 font-mono text-[9px] leading-tight space-y-1">
-                <div className="flex items-center gap-1 pb-1 border-b border-zinc-700/60">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                </div>
-                <div className="text-zinc-300 space-y-0.5">
-                  <span className="text-zinc-400">SELECT</span> region,
-                  <br />
-                  <span className="pl-2 text-zinc-400">SUM</span>(sales)
-                  <br />
-                  <span className="text-zinc-400">FROM</span> orders
-                  <br />
-                  <span className="text-zinc-400">GROUP BY</span> region;
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Bottom Section: 4 Hero Database Cylinders (Exact Hero Monument Shaders) */}
-          <div className="relative z-10 w-full flex items-end justify-center pt-1">
+          <div className="relative z-10 w-full flex items-end justify-center pt-6 pb-2">
             <svg
               viewBox="0 0 440 200"
-              className="w-full max-w-[390px] h-auto overflow-visible select-none"
+              className="w-full max-w-[400px] h-auto overflow-visible select-none"
             >
               <defs>
                 {/* Platinum / White Tier Body Shading (Exact match to Hero) */}

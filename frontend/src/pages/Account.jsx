@@ -18,7 +18,9 @@ import {
   fetchSettings,
   updateSettings,
   testApiKey,
-  fetchAllDatabases
+  fetchAllDatabases,
+  updateUserEmail,
+  updateUserPassword
 } from '../services/api';
 
 export default function Account({ onNavigateToDatabases, onNavigateToPlayground, onOpenAuth, onLogout }) {
@@ -82,7 +84,7 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground,
   };
 
   // Handle Change Email
-  const handleChangeEmail = (e) => {
+  const handleChangeEmail = async (e) => {
     e.preventDefault();
     setEmailStatus(null);
 
@@ -97,16 +99,21 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground,
     }
 
     setIsUpdatingEmail(true);
-    setTimeout(() => {
+    try {
+      await updateUserEmail(email, trimmed);
       setEmail(trimmed);
       setNewEmailInput('');
+      setEmailStatus({ type: 'success', message: 'Email address updated and saved in MongoDB!' });
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Failed to update email.';
+      setEmailStatus({ type: 'error', message: msg });
+    } finally {
       setIsUpdatingEmail(false);
-      setEmailStatus({ type: 'success', message: 'Email address updated successfully!' });
-    }, 450);
+    }
   };
 
   // Handle Change Password
-  const handleChangePassword = (e) => {
+  const handleChangePassword = async (e) => {
     e.preventDefault();
     setPasswordStatus(null);
 
@@ -124,13 +131,18 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground,
     }
 
     setIsUpdatingPassword(true);
-    setTimeout(() => {
+    try {
+      await updateUserPassword(email, currentPassword, newPassword);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      setPasswordStatus({ type: 'success', message: 'Password updated and saved in MongoDB!' });
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Failed to update password.';
+      setPasswordStatus({ type: 'error', message: msg });
+    } finally {
       setIsUpdatingPassword(false);
-      setPasswordStatus({ type: 'success', message: 'Password changed successfully!' });
-    }, 500);
+    }
   };
 
   // Handle Logout

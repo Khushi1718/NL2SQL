@@ -167,4 +167,29 @@ export const resetDatabase = async () => {
   return res.data;
 };
 
+// Authentication & User Accounts (MongoDB)
+export const signupUser = async ({ email, password, name, role }) => {
+  const res = await api.post('/auth/signup', { email, password, name, role });
+  return res.data;
+};
+
+export const loginUser = async ({ email, password }) => {
+  const res = await api.post('/auth/login', { email, password });
+  return res.data;
+};
+
+export const updateUserEmail = async (oldEmail, newEmail) => {
+  const res = await api.post('/auth/change-email', { old_email: oldEmail, new_email: newEmail });
+  return res.data;
+};
+
+export const updateUserPassword = async (email, currentPassword, newPassword) => {
+  const res = await api.post('/auth/change-password', {
+    email,
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+  return res.data;
+};
+
 export default api;
