@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 from prompt_engineering.templates import (
     ROLE_PROMPT,
     QUERY_CONSTRAINTS,
+    IMPORTANT_SQL_GENERATION_RULES,
     STRUCTURED_OUTPUT_INSTRUCTIONS
 )
 from prompt_engineering.few_shot import (
@@ -35,6 +36,9 @@ class PromptBuilder:
     def get_query_constraints(self) -> List[str]:
         return QUERY_CONSTRAINTS
 
+    def get_important_rules(self) -> List[str]:
+        return IMPORTANT_SQL_GENERATION_RULES
+
     def get_structured_output_instructions(self) -> str:
         return STRUCTURED_OUTPUT_INSTRUCTIONS
 
@@ -44,11 +48,15 @@ class PromptBuilder:
         """
         schema_context = self.get_schema_context()
         few_shots = format_few_shot_for_prompt()
+        rules_str = "\n".join([f"{i+1}. {r}" for i, r in enumerate(IMPORTANT_SQL_GENERATION_RULES)])
         constraints_str = "\n".join([f"{i+1}. {c}" for i, c in enumerate(QUERY_CONSTRAINTS)])
 
         prompt = f"""{ROLE_PROMPT}
 
 {schema_context}
+
+### IMPORTANT SQL GENERATION RULES:
+{rules_str}
 
 ### STRICT CONSTRAINTS & RULES:
 {constraints_str}
@@ -75,6 +83,7 @@ User Question: "{user_question.strip()}"
                 "tables": list(self.schema_info.get("tables", {}).keys()),
             },
             "few_shot_examples": self.get_few_shot_examples(),
+            "important_rules": self.get_important_rules(),
             "query_constraints": self.get_query_constraints(),
             "structured_output_schema": self.get_structured_output_instructions(),
             "user_question": user_question,

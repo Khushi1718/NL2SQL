@@ -132,7 +132,7 @@ class LLMService:
         table_cols = [c["name"] for c in tables[matched_table].get("columns", [])]
         table_cols_lower = {c.lower(): c for c in table_cols}
 
-        # 2. Extract Exact Numeric Limit ("first 7 rows", "top 10", "first seven rows", "limit 5", "5 rows")
+        # 2. Extract Exact Numeric Limit ("first 7 rows", "top 10", "last 5 rows", "latest 3 entries")
         word_to_num = {
             "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
             "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
@@ -141,11 +141,17 @@ class LLMService:
         }
         num_pattern = r"(?:\d+|" + "|".join(word_to_num.keys()) + r")"
 
+        is_last_n_request = bool(
+            re.search(rf"\b(?:last|latest|bottom|most recent|recent)\s+{num_pattern}\b", q) or
+            re.search(rf"\b{num_pattern}\s+(?:last|latest|recent)\b", q) or
+            ("last" in q and any(w in q for w in ["row", "record", "entry", "item"]))
+        )
+
         limit_val = None
         limit_patterns = [
-            rf"\b(?:first|top|limit)\s+({num_pattern})\b",
+            rf"\b(?:first|top|last|latest|limit|bottom)\s+({num_pattern})\b",
             rf"\b({num_pattern})\s+(?:rows|records|items|entries|samples|lines|tuples)\b",
-            rf"\b(?:generate|get|show|display|fetch|return|list|select|give me|find)\s+(?:the\s+)?(?:first\s+|top\s+)?({num_pattern})\b"
+            rf"\b(?:generate|get|show|display|fetch|return|list|select|give me|find)\s+(?:the\s+)?(?:first\s+|top\s+|last\s+|latest\s+)?({num_pattern})\b"
         ]
         for pat in limit_patterns:
             m = re.search(pat, q)
@@ -241,24 +247,46 @@ class LLMService:
         if filter_col and filter_op and filter_val:
             filter_clause = f' WHERE "{filter_col}" {filter_op} {filter_val}'
 
-        # 6. Check for Sorting / Ordering ("top", "highest", "lowest", "best", "order by")
+        # 6. Check for Sorting / Ordering ("top", "highest", "lowest", "best", "order by", "last N rows")
         order_clause = ""
         sort_col = None
-        sort_dir = "DESC" if any(w in q for w in ["top", "highest", "most", "best", "max", "descending", "desc"]) else "ASC"
 
-        for c_low, c_orig in table_cols_lower.items():
-            if c_low in q and ("order" in q or "sort" in q or "by" in q):
-                sort_col = c_orig
-                break
-
-        if not sort_col and any(w in q for w in ["top", "highest", "best", "most"]):
+        # Rule 2 & 3: Never interpret "last N rows" as "first N rows".
+        # For "last N rows", use an appropriate timestamp, date, or sequential ID column with ORDER BY DESC and LIMIT N.
+        if is_last_n_request:
+            # Find an appropriate timestamp, date, or sequential ID column
             for c_orig in table_cols:
-                if any(term in c_orig.lower() for term in ["revenue", "total", "amount", "sales", "salary", "score", "marks", "gpa", "price"]):
+                c_low = c_orig.lower()
+                if any(k in c_low for k in ["timestamp", "created_at", "updated_at", "date", "datetime", "time", "seq"]):
+                    sort_col = c_orig
+                    break
+            if not sort_col:
+                for c_orig in table_cols:
+                    c_low = c_orig.lower()
+                    if c_low == "id" or c_low.endswith("_id") or "id" in c_low:
+                        sort_col = c_orig
+                        break
+
+            if sort_col:
+                order_clause = f' ORDER BY "{sort_col}" DESC'
+            else:
+                order_clause = ' ORDER BY rowid DESC'
+        else:
+            sort_dir = "DESC" if any(w in q for w in ["top", "highest", "most", "best", "max", "descending", "desc"]) else "ASC"
+
+            for c_low, c_orig in table_cols_lower.items():
+                if c_low in q and ("order" in q or "sort" in q or "by" in q):
                     sort_col = c_orig
                     break
 
-        if sort_col:
-            order_clause = f' ORDER BY "{sort_col}" {sort_dir}'
+            if not sort_col and any(w in q for w in ["top", "highest", "best", "most"]):
+                for c_orig in table_cols:
+                    if any(term in c_orig.lower() for term in ["revenue", "total", "amount", "sales", "salary", "score", "marks", "gpa", "price"]):
+                        sort_col = c_orig
+                        break
+
+            if sort_col:
+                order_clause = f' ORDER BY "{sort_col}" {sort_dir}'
 
         # 7. Check for Specific Column Selection vs All Columns
         selected_cols = []
@@ -310,10 +338,11 @@ class LLMService:
         else:
             reasons.append("2. Retrieved records matching query criteria.")
 
+        desc_word = f"last {limit_val}" if is_last_n_request and limit_val else (f"first {limit_val}" if limit_val else "all")
         return {
             "thought_process": "\n".join(reasons),
             "sql_query": sql,
-            "explanation": f"Selects {'first ' + limit_val if limit_val else 'all'} records from table '{matched_table}'."
+            "explanation": f"Selects {desc_word} records from table '{matched_table}'."
         }
 
 llm_service = LLMService()
