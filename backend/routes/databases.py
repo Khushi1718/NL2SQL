@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Header
 from typing import Optional, List, Dict, Any
 from database_manager import DatabaseManager, DEFAULT_BENCHMARK_DB_ID
 from mongo import check_mongo_connection
@@ -10,13 +10,17 @@ MAX_UPLOAD_SIZE_BYTES = int(os.getenv("MAX_UPLOAD_SIZE_MB", "25")) * 1024 * 1024
 
 @router.get("")
 @router.get("/list")
-def list_all_databases():
+def list_all_databases(
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    user_email: Optional[str] = Query(None)
+):
     """
-    Returns list of all available databases with metadata, table counts,
-    record counts, and storage status.
+    Returns list of databases belonging exclusively to the authenticated user.
+    Never returns other users' datasets or global sample databases.
     """
+    email = (user_email or x_user_email or "").strip().lower()
     mongo_ok, mongo_msg = check_mongo_connection()
-    databases = DatabaseManager.list_databases()
+    databases = DatabaseManager.list_databases(user_email=email)
 
     return {
         "databases": databases,
@@ -88,11 +92,16 @@ def get_table_preview(database_id: str, table_name: str, limit: int = Query(50, 
 async def upload_database(
     file: UploadFile = File(...),
     database_name: str = Form(...),
-    table_name: Optional[str] = Form(None)
+    table_name: Optional[str] = Form(None),
+    user_email: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ):
     """
     Uploads a CSV or SQLite database file, stores it persistently in MongoDB GridFS,
-    creates/materializes the SQLite execution database, and registers metadata in MongoDB.
+    creates/materializes the SQLite execution database, and registers metadata in MongoDB
+    associated exclusively with the current user.
     """
     filename = file.filename or "uploaded_data"
     ext = os.path.splitext(filename)[1].lower()
@@ -110,19 +119,26 @@ async def upload_database(
             detail=f"File exceeds maximum upload size of {os.getenv('MAX_UPLOAD_SIZE_MB', '25')}MB."
         )
 
+    email = (user_email or x_user_email or "").strip().lower()
+    uid = user_id or x_user_id or ""
+
     try:
         if ext == ".csv":
             meta = DatabaseManager.upload_csv(
                 file_bytes=file_bytes,
                 filename=filename,
                 database_name=database_name,
-                table_name=table_name
+                table_name=table_name,
+                user_email=email,
+                user_id=uid
             )
         else:
             meta = DatabaseManager.upload_sqlite(
                 file_bytes=file_bytes,
                 filename=filename,
-                database_name=database_name
+                database_name=database_name,
+                user_email=email,
+                user_id=uid
             )
 
         return {
@@ -137,16 +153,18 @@ async def upload_database(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @router.delete("/{database_id}")
-def delete_database(database_id: str):
+def delete_database(
+    database_id: str,
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    user_email: Optional[str] = Query(None)
+):
     """
     Permanently deletes database metadata from MongoDB, removes its file from GridFS,
-    and removes its local SQLite cache.
+    and removes its local SQLite cache. Enforces user isolation.
     """
-    if database_id == DEFAULT_BENCHMARK_DB_ID:
-        raise HTTPException(status_code=400, detail="Cannot delete the default sample benchmark database.")
-
+    email = (user_email or x_user_email or "").strip().lower()
     try:
-        success = DatabaseManager.delete_database(database_id)
+        success = DatabaseManager.delete_database(database_id, user_email=email)
         if not success:
             raise HTTPException(status_code=404, detail="Database not found or could not be deleted.")
         return {"message": f"Database '{database_id}' successfully deleted from MongoDB GridFS and local storage."}

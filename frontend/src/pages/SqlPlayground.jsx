@@ -262,18 +262,32 @@ export default function SqlPlayground({
 
           {/* Database Selector Dropdown - Standard rectangular styling */}
           <div className="relative min-w-[260px] sm:min-w-[300px]">
-            <select
-              value={activeDbId}
-              onChange={(e) => handleDatabaseChange(e.target.value)}
-              className="w-full appearance-none pl-3 pr-8 py-1.5 rounded-md border border-zinc-200 bg-white hover:border-zinc-300 text-zinc-900 font-medium text-xs focus:outline-none focus:border-zinc-900 shadow-2xs cursor-pointer transition-colors"
-            >
-              {databases.map((db) => (
-                <option key={db.database_id} value={db.database_id} className="bg-white text-zinc-900">
-                  {db.database_name} ({db.table_count || 1} tables • {db.record_count || 0} rows)
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-zinc-400 absolute right-2.5 top-2 pointer-events-none" />
+            {databases.length > 0 ? (
+              <>
+                <select
+                  value={activeDbId}
+                  onChange={(e) => handleDatabaseChange(e.target.value)}
+                  className="w-full appearance-none pl-3 pr-8 py-1.5 rounded-md border border-zinc-200 bg-white hover:border-zinc-300 text-zinc-900 font-medium text-xs focus:outline-none focus:border-zinc-900 shadow-2xs cursor-pointer transition-colors"
+                >
+                  {databases.map((db) => (
+                    <option key={db.database_id} value={db.database_id} className="bg-white text-zinc-900">
+                      {db.database_name} ({db.table_count || 1} tables • {db.record_count || 0} rows)
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-400 absolute right-2.5 top-2 pointer-events-none" />
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-zinc-400 italic">No datasets uploaded yet</span>
+                <button
+                  onClick={onNavigateToDatabases}
+                  className="px-2.5 py-1 rounded-md bg-black text-white text-[11px] font-semibold hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  + Upload Dataset
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,1 +1,51 @@
-[]
+[
+  {
+    "database_id": "db_7fd366fd00",
+    "database_name": "Alice Dataset",
+    "original_filename": "alice_data.csv",
+    "file_type": "csv",
+    "storage_reference": "gfs_707ad1f876188597d628905c",
+    "upload_date": "2026-11-20T22:21:42.054476",
+    "table_count": 1,
+    "record_count": 1,
+    "schema_metadata": {
+      "tables": {
+        "t_alice": {
+          "name": "t_alice",
+          "columns": [
+            {
+              "name": "id",
+              "type": "BIGINT",
+              "nullable": true,
+              "primary_key": false,
+              "foreign_key": null
+            },
+            {
+              "name": "name",
+              "type": "TEXT",
+              "nullable": true,
+              "primary_key": false,
+              "foreign_key": null
+            }
+          ],
+          "primary_keys": [],
+          "foreign_keys": [],
+          "row_count": 1,
+          "sample_rows": [
+            {
+              "id": "1",
+              "name": "AliceData"
+            }
+          ]
+        }
+      },
+      "relationships": [],
+      "table_count": 1,
+      "total_columns": 2,
+      "total_records": 1
+    },
+    "user_email": "alice@example.com",
+    "user_id": "",
+    "is_default": false
+  }
+]

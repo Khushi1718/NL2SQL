@@ -7,15 +7,38 @@ const api = axios.create({
   },
 });
 
+// Attach authenticated user information to all requests for multi-user isolation
+api.interceptors.request.use((config) => {
+  try {
+    const saved = localStorage.getItem('nl2sql_user');
+    if (saved) {
+      const user = JSON.parse(saved);
+      if (user?.email) {
+        config.headers['X-User-Email'] = user.email.trim().lower();
+      }
+      if (user?.id) {
+        config.headers['X-User-Id'] = user.id;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return config;
+});
+
 // Health & System
 export const fetchHealth = async () => {
   const res = await api.get('/health');
   return res.data;
 };
 
-// Databases API (MongoDB GridFS & Multi-Database Management)
-export const fetchAllDatabases = async () => {
-  const res = await api.get('/databases');
+// Databases API (MongoDB GridFS & Multi-Database Management - Isolated per User)
+export const fetchAllDatabases = async (userEmail = null) => {
+  const params = {};
+  if (userEmail) {
+    params.user_email = userEmail.trim().lower();
+  }
+  const res = await api.get('/databases', { params });
   return res.data;
 };
 
@@ -47,6 +70,16 @@ export const uploadDatabaseFile = async (file, databaseName, tableName = null) =
   formData.append('database_name', databaseName);
   if (tableName && tableName.trim()) {
     formData.append('table_name', tableName.trim());
+  }
+  try {
+    const saved = localStorage.getItem('nl2sql_user');
+    if (saved) {
+      const user = JSON.parse(saved);
+      if (user?.email) formData.append('user_email', user.email.trim().lower());
+      if (user?.id) formData.append('user_id', user.id);
+    }
+  } catch (e) {
+    // ignore
   }
   const res = await api.post('/databases/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

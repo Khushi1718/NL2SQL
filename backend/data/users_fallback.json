@@ -1,0 +1,12 @@
+[
+  {
+    "email": "testuser@example.com",
+    "name": "Test User",
+    "password_hash": "5179b81ce65c08b0953656100970a73e0bf1122921d6c54453d0d3d20a3d6d78",
+    "salt": "cd19350f2f53bae5907a427ebd65fc5f",
+    "role": "Developer",
+    "created_at": "2026-11-20T22:05:08.998219",
+    "updated_at": "2026-11-20T22:05:08.998228",
+    "_id": "user_e851b889f15b11e0"
+  }
+]

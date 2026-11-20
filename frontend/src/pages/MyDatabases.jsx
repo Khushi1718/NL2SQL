@@ -24,7 +24,7 @@ import {
   fetchDatabaseSchema
 } from '../services/api';
 
-export default function MyDatabases({ onSelectDatabaseForQuery }) {
+export default function MyDatabases({ onSelectDatabaseForQuery, onDatabasesChanged }) {
   const [databases, setDatabases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mongoStatus, setMongoStatus] = useState(null);
@@ -55,6 +55,9 @@ export default function MyDatabases({ onSelectDatabaseForQuery }) {
       const data = await fetchAllDatabases();
       setDatabases(data.databases || []);
       setMongoStatus(data.mongodb_status || null);
+      if (onDatabasesChanged) {
+        onDatabasesChanged();
+      }
     } catch (err) {
       console.error('Failed to load databases', err);
     } finally {

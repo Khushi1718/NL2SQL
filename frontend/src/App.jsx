@@ -72,6 +72,8 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setDatabases([]);
+    setSelectedDbId('');
     try {
       localStorage.removeItem('nl2sql_user');
     } catch (e) {
@@ -89,8 +91,12 @@ export default function App() {
       setHealthInfo(health);
       const dbs = dbData.databases || [];
       setDatabases(dbs);
-      if (dbs.length > 0 && !selectedDbId) {
-        setSelectedDbId(dbs[0].database_id);
+      if (dbs.length > 0) {
+        if (!selectedDbId || !dbs.some(d => d.database_id === selectedDbId)) {
+          setSelectedDbId(dbs[0].database_id);
+        }
+      } else {
+        setSelectedDbId('');
       }
     } catch (err) {
       console.error('Initial load failed', err);
@@ -99,7 +105,7 @@ export default function App() {
 
   useEffect(() => {
     loadInitialData();
-  }, []);
+  }, [currentUser]);
 
   const handleSelectDatabaseForQuery = (databaseId) => {
     setSelectedDbId(databaseId);
@@ -174,6 +180,7 @@ export default function App() {
         {activePage === 'databases' && (
           <MyDatabases
             onSelectDatabaseForQuery={handleSelectDatabaseForQuery}
+            onDatabasesChanged={loadInitialData}
           />
         )}
 

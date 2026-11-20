@@ -222,40 +222,24 @@ class DatabaseManager:
         return schema_info
 
     @classmethod
-    def list_databases(cls) -> List[Dict[str, Any]]:
+    def list_databases(cls, user_email: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Lists all registered databases from MongoDB and persistent registry,
-        always ensuring benchmark database is initialized.
+        Lists registered databases from MongoDB and persistent registry belonging exclusively
+        to the authenticated user. Never returns another user's datasets or default benchmark databases.
         """
-        cls.ensure_default_benchmark_database()
-        dbs = list_databases_meta()
-        if dbs:
-            # Ensure local SQLite files exist for any registered DB
-            for d in dbs:
-                db_id = d.get("database_id")
-                if db_id and not os.path.exists(cls.get_local_db_path(db_id)):
-                    try:
-                        cls.materialize_database(db_id)
-                    except Exception:
-                        pass
-            return dbs
+        if not user_email:
+            return []
 
-        # Fallback if registry is empty
-        target_path = cls.get_local_db_path(DEFAULT_BENCHMARK_DB_ID)
-        schema_meta = cls.inspect_sqlite_schema(target_path) if os.path.exists(target_path) else {}
-
-        return [{
-            "database_id": DEFAULT_BENCHMARK_DB_ID,
-            "database_name": "Sample Benchmark Database (College & Enterprise)",
-            "original_filename": "benchmark_dataset.sqlite",
-            "file_type": "sqlite",
-            "storage_reference": "local_sqlite",
-            "upload_date": datetime.utcnow().isoformat(),
-            "table_count": schema_meta.get("table_count", 7),
-            "record_count": schema_meta.get("total_records", 70),
-            "schema_metadata": schema_meta,
-            "is_default": True
-        }]
+        norm_email = user_email.strip().lower()
+        dbs = list_databases_meta(user_email=norm_email)
+        for d in dbs:
+            db_id = d.get("database_id")
+            if db_id and not os.path.exists(cls.get_local_db_path(db_id)):
+                try:
+                    cls.materialize_database(db_id)
+                except Exception:
+                    pass
+        return dbs
 
     @classmethod
     def get_database(cls, database_id: str) -> Optional[Dict[str, Any]]:
@@ -295,11 +279,14 @@ class DatabaseManager:
         file_bytes: bytes,
         filename: str,
         database_name: str,
-        table_name: Optional[str] = None
+        table_name: Optional[str] = None,
+        user_email: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Parses CSV, validates records, infers data types, imports into a new SQLite database,
-        stores the database file in MongoDB GridFS, and registers metadata in MongoDB.
+        stores the database file in MongoDB GridFS, and registers metadata in MongoDB
+        tied exclusively to the uploading user's account.
         """
         # Parse CSV with pandas
         try:
@@ -340,10 +327,12 @@ class DatabaseManager:
             metadata={
                 "database_id": database_id,
                 "original_filename": filename,
-                "database_name": database_name
+                "database_name": database_name,
+                "user_email": (user_email or "").strip().lower()
             }
         )
 
+        norm_email = (user_email or "").strip().lower()
         meta = {
             "database_id": database_id,
             "database_name": database_name.strip() or clean_tname.title(),
@@ -354,6 +343,8 @@ class DatabaseManager:
             "table_count": schema_meta["table_count"],
             "record_count": schema_meta["total_records"],
             "schema_metadata": schema_meta,
+            "user_email": norm_email,
+            "user_id": user_id or "",
             "is_default": False
         }
 
@@ -365,11 +356,14 @@ class DatabaseManager:
         cls,
         file_bytes: bytes,
         filename: str,
-        database_name: str
+        database_name: str,
+        user_email: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Validates an uploaded SQLite database file, stores it locally and in MongoDB GridFS,
-        inspects all tables and relationships, and registers metadata in MongoDB.
+        inspects all tables and relationships, and registers metadata in MongoDB
+        tied exclusively to the uploading user's account.
         """
         # Check SQLite header
         if not file_bytes.startswith(b"SQLite format 3\x00"):
@@ -394,13 +388,15 @@ class DatabaseManager:
                 os.remove(sqlite_path)
             raise ValueError("The uploaded SQLite database contains no readable tables.")
 
+        norm_email = (user_email or "").strip().lower()
         gridfs_id = save_file_to_gridfs(
             file_bytes,
             filename=f"{database_id}.sqlite",
             metadata={
                 "database_id": database_id,
                 "original_filename": filename,
-                "database_name": database_name
+                "database_name": database_name,
+                "user_email": norm_email
             }
         )
 
@@ -414,6 +410,8 @@ class DatabaseManager:
             "table_count": schema_meta["table_count"],
             "record_count": schema_meta["total_records"],
             "schema_metadata": schema_meta,
+            "user_email": norm_email,
+            "user_id": user_id or "",
             "is_default": False
         }
 
@@ -421,14 +419,17 @@ class DatabaseManager:
         return meta
 
     @classmethod
-    def delete_database(cls, database_id: str) -> bool:
+    def delete_database(cls, database_id: str, user_email: Optional[str] = None) -> bool:
         """
         Deletes a database from MongoDB metadata, GridFS storage, and local disk cache.
+        Enforces tenant isolation: users can only delete their own databases.
         """
-        if database_id == DEFAULT_BENCHMARK_DB_ID:
-            raise ValueError("Cannot delete the default sample benchmark database.")
-
         meta = get_database_meta(database_id)
+        if meta and user_email:
+            db_email = (meta.get("user_email") or "").strip().lower()
+            if db_email and db_email != user_email.strip().lower():
+                raise ValueError("Unauthorized: You can only delete your own databases.")
+
         if meta and meta.get("storage_reference"):
             delete_file_from_gridfs(meta["storage_reference"])
 
@@ -442,6 +443,44 @@ class DatabaseManager:
                 print(f"[Delete Local File Warning] {e}")
 
         return True
+
+    @classmethod
+    def cleanup_legacy_sample_databases(cls):
+        """
+        Purges pre-seeded legacy sample databases from MongoDB and local fallback registry
+        so each user only sees their own uploaded datasets.
+        """
+        sample_names = [
+            "Sample Benchmark Database (College & Enterprise)",
+            "Sales Database",
+            "Students Database",
+            "Heart",
+            "Test Dataset"
+        ]
+        from mongo import get_mongo_db, _load_fallback_db_meta, _save_fallback_db_meta
+        db = get_mongo_db()
+        if db is not None:
+            try:
+                db.databases.delete_many({
+                    "$or": [
+                        {"is_default": True},
+                        {"database_id": DEFAULT_BENCHMARK_DB_ID},
+                        {"database_name": {"$in": sample_names}},
+                        {"user_email": {"$in": [None, ""]}}
+                    ]
+                })
+            except Exception as e:
+                print(f"[Mongo Cleanup Warning] {e}")
+
+        dbs = _load_fallback_db_meta()
+        filtered = [
+            d for d in dbs
+            if not d.get("is_default")
+            and d.get("database_id") != DEFAULT_BENCHMARK_DB_ID
+            and d.get("database_name") not in sample_names
+            and d.get("user_email")
+        ]
+        _save_fallback_db_meta(filtered)
 
     @classmethod
     def get_table_preview(cls, database_id: str, table_name: str, limit: int = 50) -> Dict[str, Any]:

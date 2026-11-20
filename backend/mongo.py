@@ -85,6 +85,7 @@ def init_mongo_indexes():
         return
     try:
         db.databases.create_index("database_id", unique=True)
+        db.databases.create_index("user_email")
         db.query_history.create_index([("database_id", pymongo.ASCENDING), ("created_at", pymongo.DESCENDING)])
         db.users.create_index("email", unique=True)
     except Exception as e:
@@ -221,15 +222,19 @@ def get_database_meta(database_id: str) -> Optional[Dict[str, Any]]:
             return d
     return None
 
-def list_databases_meta() -> List[Dict[str, Any]]:
-    """Lists all databases registered in MongoDB or persistent registry."""
+def list_databases_meta(user_email: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Lists registered databases from MongoDB or persistent registry belonging exclusively to user_email."""
+    if not user_email:
+        return []
+
+    norm_email = user_email.strip().lower()
     seen_ids = set()
     results = []
 
     db = get_mongo_db()
     if db is not None:
         try:
-            cursor = db.databases.find({}).sort("upload_date", pymongo.DESCENDING)
+            cursor = db.databases.find({"user_email": norm_email}).sort("upload_date", pymongo.DESCENDING)
             for doc in cursor:
                 db_id = doc.get("database_id")
                 if db_id and db_id not in seen_ids:
@@ -244,7 +249,8 @@ def list_databases_meta() -> List[Dict[str, Any]]:
     dbs = _load_fallback_db_meta()
     for d in dbs:
         db_id = d.get("database_id")
-        if db_id and db_id not in seen_ids:
+        d_email = (d.get("user_email") or "").strip().lower()
+        if db_id and db_id not in seen_ids and d_email == norm_email:
             seen_ids.add(db_id)
             results.append(d)
 

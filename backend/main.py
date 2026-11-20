@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
 
     try:
         init_mongo_indexes()
-        DatabaseManager.ensure_default_benchmark_database()
+        DatabaseManager.cleanup_legacy_sample_databases()
     except Exception as e:
         print(f"[Lifespan Init Warning] {e}")
 
