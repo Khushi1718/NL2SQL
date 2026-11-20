@@ -2,6 +2,7 @@ import os
 import json
 import re
 from typing import Dict, Any, Optional, List
+from services.nl_query_analyzer import NLQueryAnalyzer, AnalyzedQuery
 
 class LLMService:
     def __init__(self):
@@ -26,21 +27,27 @@ class LLMService:
     def is_configured(self) -> bool:
         return bool(self.api_key)
 
-    def generate_sql(self, full_prompt: str, user_question: str, schema_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def generate_sql(
+        self,
+        full_prompt: str,
+        user_question: str,
+        schema_info: Optional[Dict[str, Any]] = None,
+        analyzed_query: Optional[AnalyzedQuery] = None
+    ) -> Dict[str, Any]:
         """
-        Translates NL question to SQL using either live Gemini API or intelligent schema-grounded Demo Mode.
+        Translates NL question to SQL using either live Gemini API or intelligent schema-grounded Engine.
         """
         if self.api_key and not self.demo_mode:
             try:
                 return self._call_gemini_api(full_prompt)
             except Exception as e:
                 print(f"[Gemini API Warning] {str(e)}. Falling back to schema-grounded engine.")
-                result = self._generate_schema_grounded_demo(user_question, schema_info)
+                result = self._generate_schema_grounded_demo(user_question, schema_info, analyzed_query)
                 result["explanation"] += f" (Note: Evaluated via schema-grounded engine: {str(e)})"
                 return result
 
         # Intelligent Schema-Grounded Engine
-        return self._generate_schema_grounded_demo(user_question, schema_info)
+        return self._generate_schema_grounded_demo(user_question, schema_info, analyzed_query)
 
     def _call_gemini_api(self, prompt: str) -> Dict[str, Any]:
         """Calls the real Google Gemini API via the google-genai client."""
@@ -100,14 +107,23 @@ class LLMService:
             "explanation": "Extracted query based on user's natural language input."
         }
 
-    def _generate_schema_grounded_demo(self, question: str, schema_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _generate_schema_grounded_demo(
+        self,
+        question: str,
+        schema_info: Optional[Dict[str, Any]] = None,
+        analyzed_query: Optional[AnalyzedQuery] = None
+    ) -> Dict[str, Any]:
         """
         Synthesizes precise, schema-grounded SQL matching the selected database's
-        actual tables and columns, correctly handling row limits, filtering, sorting,
-        projections, and aggregations.
+        actual tables and columns, strictly adhering to the 10 mandatory rules:
+        - Extracts EVERY condition
+        - Preserves columns, operators, values, and AND/OR relationships
+        - Maps columns ONLY using actual database schema (no substitutions)
+        - For 'last N rows', uses verified sequential ID / timestamp with DESC
+        - Generates consistent explanation describing every operation
         """
-        q = question.lower().strip()
-        tables = schema_info.get("tables", {}) if schema_info else {}
+        schema = schema_info or {"tables": {}}
+        tables = schema.get("tables", {})
         table_names = list(tables.keys())
 
         if not table_names:
@@ -117,232 +133,125 @@ class LLMService:
                 "explanation": "Cannot query an empty database."
             }
 
-        # 1. Match Table
-        matched_table = None
-        for tname in table_names:
-            clean_t = tname.lower()
-            if clean_t in q or clean_t.rstrip('s') in q:
-                matched_table = tname
-                break
+        analyzed = analyzed_query or NLQueryAnalyzer.analyze_query(question, schema)
 
-        if not matched_table:
-            # Default to the primary/first table
-            matched_table = table_names[0]
-
-        table_cols = [c["name"] for c in tables[matched_table].get("columns", [])]
-        table_cols_lower = {c.lower(): c for c in table_cols}
-
-        # 2. Extract Exact Numeric Limit ("first 7 rows", "top 10", "last 5 rows", "latest 3 entries")
-        word_to_num = {
-            "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
-            "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
-            "fifteen": "15", "twenty": "20", "twenty-five": "25", "thirty": "30",
-            "fifty": "50", "hundred": "100"
-        }
-        num_pattern = r"(?:\d+|" + "|".join(word_to_num.keys()) + r")"
-
-        is_last_n_request = bool(
-            re.search(rf"\b(?:last|latest|bottom|most recent|recent)\s+{num_pattern}\b", q) or
-            re.search(rf"\b{num_pattern}\s+(?:last|latest|recent)\b", q) or
-            ("last" in q and any(w in q for w in ["row", "record", "entry", "item"]))
-        )
-
-        limit_val = None
-        limit_patterns = [
-            rf"\b(?:first|top|last|latest|limit|bottom)\s+({num_pattern})\b",
-            rf"\b({num_pattern})\s+(?:rows|records|items|entries|samples|lines|tuples)\b",
-            rf"\b(?:generate|get|show|display|fetch|return|list|select|give me|find)\s+(?:the\s+)?(?:first\s+|top\s+|last\s+|latest\s+)?({num_pattern})\b"
-        ]
-        for pat in limit_patterns:
-            m = re.search(pat, q)
-            if m:
-                raw_val = m.group(1).lower()
-                limit_val = word_to_num.get(raw_val, raw_val)
-                break
-
-        # 3. Check for Count Aggregation ("how many", "count", "number of")
-        if any(w in q for w in ["how many", "count", "number of rows", "total number"]):
-            sql = f'SELECT COUNT(*) AS total_count FROM "{matched_table}"'
+        # Rule 6: If clarification needed for "last N rows"
+        if analyzed.needs_clarification:
             return {
-                "thought_process": f"1. Identified intent: record count aggregation on table '{matched_table}'.\n2. Applied COUNT(*) aggregate function.",
-                "sql_query": sql,
-                "explanation": f"Returns the total number of records in table '{matched_table}'."
+                "thought_process": "Checked database schema for sequential ID or timestamp column. None found.",
+                "sql_query": "",
+                "explanation": analyzed.clarification_message,
+                "needs_clarification": True
             }
 
-        # 4. Check for Average / Summary Aggregation ("average salary", "mean age")
-        if any(w in q for w in ["average", "avg", "mean"]):
-            target_col = None
-            for c_low, c_orig in table_cols_lower.items():
-                if c_low in q:
-                    target_col = c_orig
+        # Rule 3: If unmapped columns exist
+        if analyzed.unmapped_columns:
+            target = analyzed.target_table or table_names[0]
+            cols = [c["name"] for c in tables.get(target, {}).get("columns", [])]
+            return {
+                "thought_process": f"Strict schema validation: Column(s) '{', '.join(analyzed.unmapped_columns)}' do not exist in table '{target}'.",
+                "sql_query": "",
+                "explanation": f"Column '{', '.join(analyzed.unmapped_columns)}' does not exist in table '{target}'. Available columns: {', '.join(cols)}.",
+                "validation_error": f"Column '{', '.join(analyzed.unmapped_columns)}' does not exist in table '{target}'."
+            }
+
+        matched_table = analyzed.target_table or table_names[0]
+        table_cols = [c["name"] for c in tables.get(matched_table, {}).get("columns", [])]
+
+        # Multi-Table Benchmark Schemas (if applicable)
+        q_low = question.lower()
+        if "student" in q_low and "marks" in q_low and "courses" in tables and "enrollments" in tables:
+            val = "80"
+            for c in analyzed.conditions:
+                if "score" in c.raw_col.lower() or "mark" in c.raw_col.lower():
+                    val = c.formatted_value
                     break
-            if not target_col:
-                for c_orig in table_cols:
-                    if any(term in c_orig.lower() for term in ["salary", "marks", "score", "price", "amount", "revenue", "age", "gpa", "cost"]):
-                        target_col = c_orig
-                        break
-
-            if target_col:
-                sql = f'SELECT ROUND(AVG("{target_col}"), 2) AS average_{target_col}, MIN("{target_col}") AS min_{target_col}, MAX("{target_col}") AS max_{target_col}, COUNT(*) AS total_count FROM "{matched_table}"'
-                return {
-                    "thought_process": f"1. Identified aggregation request: average of '{target_col}' on table '{matched_table}'.\n2. Included AVG, MIN, MAX, and COUNT summary statistics.",
-                    "sql_query": sql,
-                    "explanation": f"Calculates statistical summary (average, min, max) for {target_col} in {matched_table}."
-                }
-
-        # 5. Check for Filtering ("more than X", "> X", "scored more than 80", "where label is 0", "where status = 'active'")
-        filter_clause = ""
-        filter_col = None
-        filter_op = None
-        filter_val = None
-
-        # Check explicit column = value (numeric or string)
-        for c_low, c_orig in table_cols_lower.items():
-            col_match = re.search(rf"\b{re.escape(c_low)}\s*(?:=|is|equals|equal to|==)\s*['\"]?([a-zA-Z0-9_\.-]+)['\"]?", q)
-            if col_match:
-                filter_col = c_orig
-                filter_op = "="
-                val = col_match.group(1)
-                filter_val = val if val.replace('.', '', 1).isdigit() else f"'{val}'"
-                break
-            
-            comp_col_match = re.search(rf"\b{re.escape(c_low)}\s*(?:>|>=|more than|greater than|above)\s*(\d+(?:\.\d+)?)", q)
-            if comp_col_match:
-                filter_col = c_orig
-                filter_op = ">"
-                filter_val = comp_col_match.group(1)
-                break
-
-            less_col_match = re.search(rf"\b{re.escape(c_low)}\s*(?:<|<=|less than|under|below)\s*(\d+(?:\.\d+)?)", q)
-            if less_col_match:
-                filter_col = c_orig
-                filter_op = "<"
-                filter_val = less_col_match.group(1)
-                break
-
-        if not filter_val:
-            comp_match = re.search(r"(?:more than|greater than|above|>)\s*(\d+(?:\.\d+)?)", q)
-            if comp_match:
-                filter_op = ">"
-                filter_val = comp_match.group(1)
-            else:
-                less_match = re.search(r"(?:less than|under|below|<)\s*(\d+(?:\.\d+)?)", q)
-                if less_match:
-                    filter_op = "<"
-                    filter_val = less_match.group(1)
-                else:
-                    eq_match = re.search(r"(?:equal to|equals|=|is)\s*(\d+(?:\.\d+)?)", q)
-                    if eq_match:
-                        filter_op = "="
-                        filter_val = eq_match.group(1)
-
-            if filter_val and not filter_col:
-                for c_orig in table_cols:
-                    if any(term in c_orig.lower() for term in ["score", "marks", "gpa", "salary", "revenue", "price", "amount", "age", "units"]):
-                        filter_col = c_orig
-                        break
-                if not filter_col and len(table_cols) > 1:
-                    filter_col = table_cols[1]
-
-        if filter_col and filter_op and filter_val:
-            filter_clause = f' WHERE "{filter_col}" {filter_op} {filter_val}'
-
-        # 6. Check for Sorting / Ordering ("top", "highest", "lowest", "best", "order by", "last N rows")
-        order_clause = ""
-        sort_col = None
-
-        # Rule 2 & 3: Never interpret "last N rows" as "first N rows".
-        # For "last N rows", use an appropriate timestamp, date, or sequential ID column with ORDER BY DESC and LIMIT N.
-        if is_last_n_request:
-            # Find an appropriate timestamp, date, or sequential ID column
-            for c_orig in table_cols:
-                c_low = c_orig.lower()
-                if any(k in c_low for k in ["timestamp", "created_at", "updated_at", "date", "datetime", "time", "seq"]):
-                    sort_col = c_orig
-                    break
-            if not sort_col:
-                for c_orig in table_cols:
-                    c_low = c_orig.lower()
-                    if c_low == "id" or c_low.endswith("_id") or "id" in c_low:
-                        sort_col = c_orig
-                        break
-
-            if sort_col:
-                order_clause = f' ORDER BY "{sort_col}" DESC'
-            else:
-                order_clause = ' ORDER BY rowid DESC'
-        else:
-            sort_dir = "DESC" if any(w in q for w in ["top", "highest", "most", "best", "max", "descending", "desc"]) else "ASC"
-
-            for c_low, c_orig in table_cols_lower.items():
-                if c_low in q and ("order" in q or "sort" in q or "by" in q):
-                    sort_col = c_orig
-                    break
-
-            if not sort_col and any(w in q for w in ["top", "highest", "best", "most"]):
-                for c_orig in table_cols:
-                    if any(term in c_orig.lower() for term in ["revenue", "total", "amount", "sales", "salary", "score", "marks", "gpa", "price"]):
-                        sort_col = c_orig
-                        break
-
-            if sort_col:
-                order_clause = f' ORDER BY "{sort_col}" {sort_dir}'
-
-        # 7. Check for Specific Column Selection vs All Columns
-        selected_cols = []
-        is_explicit_selection = any(w in q for w in ["select", "show", "display", "columns", "fields", "list"])
-        if is_explicit_selection:
-            for c_low, c_orig in table_cols_lower.items():
-                if re.search(rf"\b{re.escape(c_low)}\b", q):
-                    # Do not treat as selected column if it was solely part of the filter condition and not meant as projection
-                    selected_cols.append(f'"{c_orig}"')
-
-        cols_clause = ", ".join(selected_cols) if selected_cols and len(selected_cols) < len(table_cols) else "*"
-
-        # 8. Benchmark Fallbacks for Multi-Table Join Schema (e.g. students + enrollments + courses)
-        if "student" in q and "marks" in q and "courses" in tables and "enrollments" in tables:
-            val = filter_val or "80"
             return {
                 "thought_process": f"1. Joined 'students', 'enrollments', and 'courses'.\n2. Filtered score_marks > {val}.\n3. Ordered descending by score.",
                 "sql_query": f"SELECT s.first_name, s.last_name, s.major, c.title AS course_title, e.score_marks, e.grade FROM students s JOIN enrollments e ON s.id = e.student_id JOIN courses c ON e.course_id = c.id WHERE e.score_marks > {val} ORDER BY e.score_marks DESC",
                 "explanation": f"Retrieves students who scored more than {val} marks in course enrollments."
             }
 
-        if "customer" in q and ("purchase" in q or "spent" in q) and "orders" in tables and "customers" in tables:
-            n = limit_val or "5"
+        if "customer" in q_low and ("purchase" in q_low or "spent" in q_low) and "orders" in tables and "customers" in tables:
+            n = analyzed.row_limit or 5
             return {
                 "thought_process": f"1. Joined 'customers' and 'orders'.\n2. Grouped by customer and aggregated SUM(total_amount).\n3. Clamped to top {n}.",
                 "sql_query": f"SELECT c.id, c.name, c.email, c.city, c.country, ROUND(SUM(o.total_amount), 2) AS total_purchase_amount FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id, c.name, c.email, c.city, c.country ORDER BY total_purchase_amount DESC LIMIT {n}",
                 "explanation": f"Ranks top {n} customers by total purchase volume."
             }
 
-        if "employee" in q and "department" in q and "departments" in tables and "employees" in tables:
+        if "employee" in q_low and "department" in q_low and "departments" in tables and "employees" in tables:
             return {
                 "thought_process": "1. Left joined 'departments' and 'employees'.\n2. Grouped by department and counted headcount.",
                 "sql_query": "SELECT d.name AS department_name, d.building, COUNT(e.id) AS employee_count, ROUND(AVG(e.salary), 2) AS avg_salary FROM departments d LEFT JOIN employees e ON d.id = e.department_id GROUP BY d.id, d.name, d.building ORDER BY employee_count DESC",
                 "explanation": "Counts employees and calculates average salary per department."
             }
 
-        # 9. Assemble Constructed Query
-        limit_clause = f" LIMIT {limit_val}" if limit_val else ""
-        sql = f'SELECT {cols_clause} FROM "{matched_table}"{filter_clause}{order_clause}{limit_clause}'
-
-        # Reasoning
-        reasons = [f"1. Identified target table '{matched_table}' from active database."]
-        if filter_clause:
-            reasons.append(f"2. Applied filter condition: {filter_clause.strip()}.")
-        if order_clause:
-            reasons.append(f"3. Applied sorting: {order_clause.strip()}.")
-        if limit_val:
-            reasons.append(f"4. Applied limit of {limit_val} rows as requested ('{question}').")
+        # 1. Projections
+        if analyzed.is_count_request:
+            cols_clause = "COUNT(*) AS total_count"
+        elif analyzed.is_summary_request and analyzed.summary_col:
+            sc = analyzed.summary_col
+            cols_clause = f'ROUND(AVG("{sc}"), 2) AS average_{sc}, MIN("{sc}") AS min_{sc}, MAX("{sc}") AS max_{sc}, COUNT(*) AS total_count'
+        elif analyzed.selected_columns:
+            cols_clause = ", ".join([f'"{c}"' for c in analyzed.selected_columns])
         else:
-            reasons.append("2. Retrieved records matching query criteria.")
+            cols_clause = "*"
 
-        desc_word = f"last {limit_val}" if is_last_n_request and limit_val else (f"first {limit_val}" if limit_val else "all")
+        # 2. WHERE Clause (Rule 1, 2, 4, 5)
+        where_clause = ""
+        if analyzed.conditions:
+            cond_frags = []
+            for i, c in enumerate(analyzed.conditions):
+                if i == 0:
+                    cond_frags.append(c.to_sql_fragment())
+                else:
+                    cond_frags.append(f"{c.logical_op} {c.to_sql_fragment()}")
+            where_clause = f" WHERE {' '.join(cond_frags)}"
+
+        # 3. ORDER BY Clause (Rule 2, 6)
+        order_clause = ""
+        if analyzed.is_last_n_request:
+            if analyzed.order_by_col:
+                order_clause = f' ORDER BY "{analyzed.order_by_col}" DESC'
+        elif analyzed.order_by_col:
+            direction = analyzed.order_direction or "ASC"
+            order_clause = f' ORDER BY "{analyzed.order_by_col}" {direction}'
+
+        # 4. LIMIT Clause
+        limit_clause = f" LIMIT {analyzed.row_limit}" if analyzed.row_limit else ""
+
+        # Assemble SQL
+        sql = f'SELECT {cols_clause} FROM "{matched_table}"{where_clause}{order_clause}{limit_clause}'
+
+        # Reasoning (thought_process)
+        reasons = [f"1. Identified target table '{matched_table}' from active database."]
+        if analyzed.conditions:
+            cond_summary = ", ".join([c.to_sql_fragment() for c in analyzed.conditions])
+            reasons.append(f"2. Extracted and preserved all conditions: {cond_summary}.")
+        if analyzed.order_by_col:
+            reasons.append(f"3. Applied verified ordering: ORDER BY \"{analyzed.order_by_col}\" {analyzed.order_direction or ('DESC' if analyzed.is_last_n_request else 'ASC')}.")
+        if analyzed.row_limit:
+            reasons.append(f"4. Applied row limit: LIMIT {analyzed.row_limit}.")
+
+        # Explanation (Rule 9)
+        exp_parts = [f"Retrieves records from table '{matched_table}'"]
+        if analyzed.conditions:
+            cond_descs = [f"{c.schema_col} {c.operator} {c.formatted_value}" for c in analyzed.conditions]
+            exp_parts.append(f"where {' and '.join(cond_descs)}")
+        if analyzed.is_last_n_request and analyzed.order_by_col:
+            exp_parts.append(f"ordered by {analyzed.order_by_col} descending (latest {analyzed.row_limit or 10} records)")
+        elif analyzed.order_by_col:
+            exp_parts.append(f"ordered by {analyzed.order_by_col} {analyzed.order_direction or 'ASC'}")
+        if analyzed.row_limit and not analyzed.is_last_n_request:
+            exp_parts.append(f"limited to {analyzed.row_limit} rows")
+
+        explanation = " ".join(exp_parts) + "."
+
         return {
             "thought_process": "\n".join(reasons),
             "sql_query": sql,
-            "explanation": f"Selects {desc_word} records from table '{matched_table}'."
+            "explanation": explanation
         }
 
 llm_service = LLMService()

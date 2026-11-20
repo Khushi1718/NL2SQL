@@ -1,1 +1,99 @@
-[]
+[
+  {
+    "database_id": "db_5270589696",
+    "database_name": "Iris Database",
+    "original_filename": "Iris.csv",
+    "file_type": "csv",
+    "storage_reference": "6b00c9029ed17dac429bda4a",
+    "upload_date": "2026-11-20T22:26:10.473307",
+    "table_count": 1,
+    "record_count": 150,
+    "schema_metadata": {
+      "tables": {
+        "iris": {
+          "name": "iris",
+          "columns": [
+            {
+              "name": "id",
+              "type": "BIGINT",
+              "nullable": true,
+              "primary_key": false,
+              "foreign_key": null
+            },
+            {
+              "name": "sepallengthcm",
+              "type": "FLOAT",
+              "nullable": true,
+              "primary_key": false,
+              "foreign_key": null
+            },
+            {
+              "name": "sepalwidthcm",
+              "type": "FLOAT",
+              "nullable": true,
+              "primary_key": false,
+              "foreign_key": null
+            },
+            {
+              "name": "petallengthcm",
+              "type": "FLOAT",
+              "nullable": true,
+              "primary_key": false,
+              "foreign_key": null
+            },
+            {
+              "name": "petalwidthcm",
+              "type": "FLOAT",
+              "nullable": true,
+              "primary_key": false,
+              "foreign_key": null
+            },
+            {
+              "name": "species",
+              "type": "TEXT",
+              "nullable": true,
+              "primary_key": false,
+              "foreign_key": null
+            }
+          ],
+          "primary_keys": [],
+          "foreign_keys": [],
+          "row_count": 150,
+          "sample_rows": [
+            {
+              "id": "1",
+              "sepallengthcm": "5.1",
+              "sepalwidthcm": "3.5",
+              "petallengthcm": "1.4",
+              "petalwidthcm": "0.2",
+              "species": "Iris-setosa"
+            },
+            {
+              "id": "2",
+              "sepallengthcm": "4.9",
+              "sepalwidthcm": "3.0",
+              "petallengthcm": "1.4",
+              "petalwidthcm": "0.2",
+              "species": "Iris-setosa"
+            },
+            {
+              "id": "3",
+              "sepallengthcm": "4.7",
+              "sepalwidthcm": "3.2",
+              "petallengthcm": "1.3",
+              "petalwidthcm": "0.2",
+              "species": "Iris-setosa"
+            }
+          ]
+        }
+      },
+      "relationships": [],
+      "table_count": 1,
+      "total_columns": 6,
+      "total_records": 150
+    },
+    "user_email": "user@nl2sql.local",
+    "user_id": "",
+    "is_default": false
+  }
+]

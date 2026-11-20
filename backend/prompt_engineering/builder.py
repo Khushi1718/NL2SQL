@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from prompt_engineering.templates import (
     ROLE_PROMPT,
     QUERY_CONSTRAINTS,
@@ -15,7 +15,8 @@ class PromptBuilder:
     """
     Constructs comprehensive prompt payloads using established prompt engineering
     techniques: Role Prompting, Context Injection, Few-Shot Demonstrations,
-    Structured Output specifications, and strict Query Constraints.
+    Structured Output specifications, strict Query Constraints, and Pre-Analyzed
+    Requirement Checklists.
     """
 
     def __init__(self, schema_info: Dict[str, Any] = None):
@@ -42,25 +43,30 @@ class PromptBuilder:
     def get_structured_output_instructions(self) -> str:
         return STRUCTURED_OUTPUT_INSTRUCTIONS
 
-    def build_full_prompt(self, user_question: str) -> str:
+    def build_full_prompt(self, user_question: str, analyzed_query: Optional[Any] = None) -> str:
         """
-        Synthesizes all prompt engineering modules into a single complete prompt.
+        Synthesizes all prompt engineering modules into a single complete prompt,
+        including pre-analyzed condition checklists when available.
         """
         schema_context = self.get_schema_context()
         few_shots = format_few_shot_for_prompt()
         rules_str = "\n".join([f"{i+1}. {r}" for i, r in enumerate(IMPORTANT_SQL_GENERATION_RULES)])
         constraints_str = "\n".join([f"{i+1}. {c}" for i, c in enumerate(QUERY_CONSTRAINTS)])
 
+        reqs_block = ""
+        if analyzed_query and hasattr(analyzed_query, "format_for_prompt"):
+            reqs_block = f"\n{analyzed_query.format_for_prompt()}\n"
+
         prompt = f"""{ROLE_PROMPT}
 
 {schema_context}
 
-### IMPORTANT SQL GENERATION RULES:
+### IMPORTANT MANDATORY SQL GENERATION RULES:
 {rules_str}
 
-### STRICT CONSTRAINTS & RULES:
+### STRICT CONSTRAINTS & EXECUTION POLICIES:
 {constraints_str}
-
+{reqs_block}
 {few_shots}
 
 ### USER INQUIRY:
@@ -70,9 +76,9 @@ User Question: "{user_question.strip()}"
 """
         return prompt.strip()
 
-    def get_inspectable_breakdown(self, user_question: str) -> Dict[str, Any]:
+    def get_inspectable_breakdown(self, user_question: str, analyzed_query: Optional[Any] = None) -> Dict[str, Any]:
         """
-        Returns full breakdown of prompt components for academic inspection and UI display.
+        Returns full breakdown of prompt components for inspection and UI display.
         """
         return {
             "role_prompt": self.get_role_prompt(),
@@ -85,7 +91,8 @@ User Question: "{user_question.strip()}"
             "few_shot_examples": self.get_few_shot_examples(),
             "important_rules": self.get_important_rules(),
             "query_constraints": self.get_query_constraints(),
+            "pre_analyzed_requirements": analyzed_query.format_for_prompt() if analyzed_query and hasattr(analyzed_query, "format_for_prompt") else None,
             "structured_output_schema": self.get_structured_output_instructions(),
             "user_question": user_question,
-            "final_constructed_prompt": self.build_full_prompt(user_question)
+            "final_constructed_prompt": self.build_full_prompt(user_question, analyzed_query)
         }

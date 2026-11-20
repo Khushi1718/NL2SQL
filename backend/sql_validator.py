@@ -1,5 +1,5 @@
 import re
-from typing import Tuple, Optional, Set
+from typing import Tuple, Optional, Set, Dict, Union, Any
 import sqlglot
 from sqlglot import exp
 
@@ -8,6 +8,8 @@ FORBIDDEN_KEYWORDS = {
     "REPLACE", "ATTACH", "DETACH", "GRANT", "REVOKE", "VACUUM", "REINDEX",
     "EXEC", "EXECUTE", "UPSERT", "MERGE"
 }
+
+SQLITE_BUILTIN_COLUMNS = {"rowid", "oid", "_rowid_"}
 
 def clean_sql(raw_sql: str) -> str:
     """Strip markdown code fences and whitespace from model response."""
@@ -29,10 +31,17 @@ def clean_sql(raw_sql: str) -> str:
 def validate_sql(
     sql_query: str,
     allowed_tables: Optional[Set[str]] = None,
+    allowed_columns: Optional[Union[Set[str], Dict[str, Set[str]]]] = None,
     max_limit: int = 500
 ) -> Tuple[bool, str, Optional[str]]:
     """
-    Validates a SQL query for safety.
+    Validates a SQL query for safety and schema fidelity.
+    Ensures:
+    - Read-only SELECT operations only (Rule 10)
+    - Forbidden DDL/DML keywords and PRAGMA prevention
+    - AST validation via sqlglot
+    - Schema validation for tables AND columns (Rule 3)
+    - Safe limit enforcement
     Returns: (is_valid: bool, sanitized_or_error_sql: str, error_message: Optional[str])
     """
     sql = clean_sql(sql_query)
@@ -88,6 +97,42 @@ def validate_sql(
                 if t not in normalized_allowed and not t.startswith("sqlite_"):
                     return False, sql, f"Referenced table '{t}' does not exist in the database schema."
 
+        # Check columns if allowed_columns is provided (Rule 3)
+        if allowed_columns:
+            select_aliases = {a.alias.lower() for a in expression.find_all(exp.Alias) if a.alias}
+            
+            if isinstance(allowed_columns, dict):
+                # Normalized mapping {table_lower: {col_lower}}
+                tbl_col_map = {t.lower(): {c.lower() for c in cols} for t, cols in allowed_columns.items()}
+                all_allowed_cols = {c.lower() for cols in allowed_columns.values() for c in cols}
+            else:
+                tbl_col_map = {}
+                all_allowed_cols = {c.lower() for c in allowed_columns}
+
+            for col_node in expression.find_all(exp.Column):
+                col_name = col_node.name
+                col_lower = col_name.lower()
+
+                # Ignore defined aliases in the same query (e.g. SELECT AVG(x) AS avg_x ... ORDER BY avg_x)
+                if col_lower in select_aliases:
+                    continue
+
+                # Ignore SQLite internal built-ins
+                if col_lower in SQLITE_BUILTIN_COLUMNS:
+                    continue
+
+                # If table qualifier is present
+                if col_node.table and tbl_col_map:
+                    tbl_lower = col_node.table.lower()
+                    if tbl_lower in tbl_col_map:
+                        if col_lower not in tbl_col_map[tbl_lower]:
+                            return False, sql, f"Referenced column '{col_name}' does not exist in table '{col_node.table}'. Column substitution is prohibited."
+                        continue
+
+                # Check in all allowed columns
+                if col_lower not in all_allowed_cols:
+                    return False, sql, f"Referenced column '{col_name}' does not exist in the database schema. Column substitution is prohibited."
+
         # Ensure LIMIT is present or add safe LIMIT
         limit_node = expression.find(exp.Limit)
         if limit_node:
@@ -95,7 +140,7 @@ def validate_sql(
                 # If existing limit exceeds max_limit, clamp it or leave
                 limit_val = int(limit_node.expression.this)
                 if limit_val > max_limit:
-                    limit_node.expression.this = str(max_limit)
+                    limit_node.set("expression", exp.Literal.number(max_limit))
             except Exception:
                 pass
         else:
