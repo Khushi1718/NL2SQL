@@ -67,7 +67,7 @@ export default function App() {
       />
 
       {/* Main Page Content */}
-      <main className={`flex-1 flex flex-col overflow-y-auto bg-transparent ${activePage !== 'home' ? 'pt-16 sm:pt-20' : ''}`}>
+      <main className={`flex-1 flex flex-col overflow-y-auto bg-transparent ${activePage !== 'home' ? 'pt-14 sm:pt-16' : ''}`}>
         {/* 1. HOME PAGE */}
         {activePage === 'home' && (
           <Home

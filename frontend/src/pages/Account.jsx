@@ -215,70 +215,70 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
   }
 
   return (
-    <div className="flex-1 px-4 sm:px-8 lg:px-12 pt-2 sm:pt-3 pb-12 space-y-6 max-w-6xl mx-auto w-full text-left">
+    <div className="flex-1 px-4 sm:px-8 lg:px-12 pt-1 pb-6 space-y-4 max-w-6xl mx-auto w-full text-left">
       {/* Header Banner */}
-      <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+      <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
         <div>
-          <h2 className="font-serif text-2xl sm:text-3xl font-medium text-zinc-950 tracking-tight">
+          <h2 className="font-serif text-xl sm:text-2xl font-medium text-zinc-950 tracking-tight">
             Account Settings
           </h2>
-          <p className="text-xs sm:text-sm text-zinc-500 font-normal">
+          <p className="text-xs text-zinc-500 font-normal">
             Manage your personal profile, credentials, and security.
           </p>
         </div>
 
         <button
           onClick={loadAccountData}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 shadow-2xs transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 shadow-2xs transition-all cursor-pointer"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-zinc-800' : 'text-zinc-500'}`} />
+          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin text-zinc-800' : 'text-zinc-500'}`} />
           <span>Refresh</span>
         </button>
       </div>
 
-      {/* Main 2-Column Content Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      {/* Main 2-Column Content Layout (Zero Scroll Viewport Fit) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         
         {/* ======================================================== */}
-        {/* LEFT COLUMN: Sticky Card with Picture, Name, Mail, Logout*/}
+        {/* LEFT COLUMN: Clean Profile Card                          */}
         {/* ======================================================== */}
-        <div className="lg:col-span-4 lg:sticky lg:top-24 self-start bg-white border border-zinc-200/80 rounded-3xl p-6 sm:p-8 flex flex-col items-center text-center shadow-2xs space-y-6">
+        <div className="lg:col-span-4 bg-white border border-zinc-200/80 rounded-2xl p-5 flex flex-col items-center text-center shadow-2xs space-y-4">
           
           {/* Circular Account Picture */}
           <div className="relative group">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-zinc-950 via-zinc-800 to-zinc-700 text-white flex items-center justify-center font-serif text-3xl font-medium shadow-md border-4 border-white ring-1 ring-zinc-200/80">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-zinc-950 via-zinc-800 to-zinc-700 text-white flex items-center justify-center font-serif text-2xl font-medium shadow-md border-3 border-white ring-1 ring-zinc-200/80">
               {name.charAt(0).toUpperCase()}
             </div>
-            <div className="w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white absolute bottom-1 right-1" title="Online" />
+            <div className="w-3 h-3 rounded-full bg-emerald-500 border-2 border-white absolute bottom-0.5 right-0.5" title="Online" />
           </div>
 
           {/* Name & Mail */}
-          <div className="space-y-1">
-            <h3 className="font-serif text-2xl font-medium text-zinc-950 tracking-tight">
+          <div className="space-y-0.5">
+            <h3 className="font-serif text-xl font-medium text-zinc-950 tracking-tight">
               {name}
             </h3>
-            <p className="text-xs sm:text-sm text-zinc-500 font-normal font-sans">
+            <p className="text-xs text-zinc-500 font-normal font-sans">
               {email}
             </p>
           </div>
 
           {/* Status Badge */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-[11px] font-semibold text-emerald-800">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-[10px] font-semibold text-emerald-800">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
             <span>Active Member</span>
           </div>
 
           {/* Account Meta List */}
-          <div className="w-full pt-4 border-t border-zinc-100 space-y-2.5 text-xs text-left">
-            <div className="flex items-center justify-between text-zinc-500">
+          <div className="w-full pt-3 border-t border-zinc-100 space-y-2 text-xs text-left">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
               <span className="font-normal">Member Since</span>
               <span className="font-medium text-zinc-900">{memberSince}</span>
             </div>
-            <div className="flex items-center justify-between text-zinc-500">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
               <span className="font-normal">Connected DBs</span>
               <span className="font-medium text-zinc-900">{databases.length}</span>
             </div>
-            <div className="flex items-center justify-between text-zinc-500">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
               <span className="font-normal">Storage</span>
               <span className="font-medium text-zinc-900">MongoDB GridFS</span>
             </div>
@@ -287,7 +287,7 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
           {/* Quick Logout Button */}
           <button
             onClick={() => setShowLogoutConfirm(true)}
-            className="w-full py-2.5 rounded-full border border-rose-200 text-rose-700 hover:bg-rose-50 hover:border-rose-300 text-xs font-semibold shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            className="w-full py-2 rounded-full border border-rose-200 text-rose-700 hover:bg-rose-50 hover:border-rose-300 text-xs font-semibold shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Sign Out</span>
@@ -297,52 +297,52 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
         {/* ======================================================== */}
         {/* RIGHT COLUMN: Change Email & Change Password             */}
         {/* ======================================================== */}
-        <div className="lg:col-span-8 space-y-6">
+        <div className="lg:col-span-8 space-y-3.5">
           
           {/* CARD 1: CHANGE EMAIL */}
-          <div className="bg-white border border-zinc-200/80 rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xs text-left">
-            <div className="space-y-1">
+          <div className="bg-white border border-zinc-200/80 rounded-2xl p-4 sm:p-5 space-y-3 shadow-2xs text-left">
+            <div className="space-y-0.5">
               <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-zinc-800" />
-                <h4 className="font-serif text-xl font-medium tracking-tight text-zinc-950">
+                <Mail className="w-3.5 h-3.5 text-zinc-800" />
+                <h4 className="font-serif text-base sm:text-lg font-medium tracking-tight text-zinc-950">
                   Change Email Address
                 </h4>
               </div>
-              <p className="text-xs text-zinc-500 font-normal leading-relaxed">
+              <p className="text-[11px] text-zinc-500 font-normal leading-relaxed">
                 Update the primary email address associated with your account.
               </p>
             </div>
 
             {emailStatus && (
-              <div className={`p-3.5 rounded-2xl text-xs flex items-center gap-2.5 ${
+              <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
                 emailStatus.type === 'success'
                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/80'
                   : 'bg-rose-50 text-rose-800 border border-rose-200/80'
               }`}>
                 {emailStatus.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                 )}
                 <span>{emailStatus.message}</span>
               </div>
             )}
 
-            <form onSubmit={handleChangeEmail} className="space-y-4">
+            <form onSubmit={handleChangeEmail} className="space-y-2.5">
               <div>
-                <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
+                <label className="block text-[11px] font-semibold text-zinc-800 mb-1">
                   Current Email:
                 </label>
                 <input
                   type="email"
                   value={email}
                   disabled
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-500 font-sans cursor-not-allowed"
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-500 font-sans cursor-not-allowed"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
+                <label className="block text-[11px] font-semibold text-zinc-800 mb-1">
                   New Email Address:
                 </label>
                 <input
@@ -350,54 +350,54 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
                   value={newEmailInput}
                   onChange={(e) => setNewEmailInput(e.target.value)}
                   placeholder="e.g. khushi.new@example.com"
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-zinc-200 bg-white text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs transition-all"
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-zinc-200 bg-white text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs transition-all"
                 />
               </div>
 
-              <div className="flex justify-end pt-1">
+              <div className="flex justify-end pt-0.5">
                 <button
                   type="submit"
                   disabled={isUpdatingEmail || !newEmailInput.trim()}
-                  className="px-6 py-2.5 rounded-full bg-black hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-40 active:scale-95"
+                  className="px-5 py-1.5 rounded-full bg-black hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-40 active:scale-95"
                 >
-                  {isUpdatingEmail ? 'Updating Email...' : 'Change Email'}
+                  {isUpdatingEmail ? 'Updating...' : 'Change Email'}
                 </button>
               </div>
             </form>
           </div>
 
           {/* CARD 2: CHANGE PASSWORD */}
-          <div className="bg-white border border-zinc-200/80 rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xs text-left">
-            <div className="space-y-1">
+          <div className="bg-white border border-zinc-200/80 rounded-2xl p-4 sm:p-5 space-y-3 shadow-2xs text-left">
+            <div className="space-y-0.5">
               <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-zinc-800" />
-                <h4 className="font-serif text-xl font-medium tracking-tight text-zinc-950">
+                <Lock className="w-3.5 h-3.5 text-zinc-800" />
+                <h4 className="font-serif text-base sm:text-lg font-medium tracking-tight text-zinc-950">
                   Change Password
                 </h4>
               </div>
-              <p className="text-xs text-zinc-500 font-normal leading-relaxed">
+              <p className="text-[11px] text-zinc-500 font-normal leading-relaxed">
                 Ensure your account is protected with a strong, confidential password.
               </p>
             </div>
 
             {passwordStatus && (
-              <div className={`p-3.5 rounded-2xl text-xs flex items-center gap-2.5 ${
+              <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
                 passwordStatus.type === 'success'
                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/80'
                   : 'bg-rose-50 text-rose-800 border border-rose-200/80'
               }`}>
                 {passwordStatus.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                 )}
                 <span>{passwordStatus.message}</span>
               </div>
             )}
 
-            <form onSubmit={handleChangePassword} className="space-y-4">
+            <form onSubmit={handleChangePassword} className="space-y-2.5">
               <div>
-                <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
+                <label className="block text-[11px] font-semibold text-zinc-800 mb-1">
                   Current Password:
                 </label>
                 <input
@@ -405,13 +405,13 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   placeholder="Enter current password..."
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-zinc-200 bg-white text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs transition-all"
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-zinc-200 bg-white text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs transition-all"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
+                  <label className="block text-[11px] font-semibold text-zinc-800 mb-1">
                     New Password:
                   </label>
                   <div className="relative">
@@ -420,20 +420,20 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Minimum 6 characters..."
-                      className="w-full px-3.5 pr-10 py-2.5 text-xs rounded-xl border border-zinc-200 bg-white text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs transition-all"
+                      className="w-full px-3 pr-8 py-1.5 text-xs rounded-lg border border-zinc-200 bg-white text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs transition-all"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                      className="absolute right-2.5 top-2 text-zinc-400 hover:text-zinc-700 cursor-pointer"
                     >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-800 mb-1.5">
+                  <label className="block text-[11px] font-semibold text-zinc-800 mb-1">
                     Confirm New Password:
                   </label>
                   <input
@@ -441,18 +441,18 @@ export default function Account({ onNavigateToDatabases, onNavigateToPlayground 
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Re-enter new password..."
-                    className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-zinc-200 bg-white text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs transition-all"
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-zinc-200 bg-white text-zinc-950 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 shadow-2xs transition-all"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end pt-1">
+              <div className="flex justify-end pt-0.5">
                 <button
                   type="submit"
                   disabled={isUpdatingPassword || !currentPassword || !newPassword}
-                  className="px-6 py-2.5 rounded-full bg-black hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-40 active:scale-95"
+                  className="px-5 py-1.5 rounded-full bg-black hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-40 active:scale-95"
                 >
-                  {isUpdatingPassword ? 'Updating Password...' : 'Change Password'}
+                  {isUpdatingPassword ? 'Updating...' : 'Change Password'}
                 </button>
               </div>
             </form>
