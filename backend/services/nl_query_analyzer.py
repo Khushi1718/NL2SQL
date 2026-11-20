@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Any, List, Optional, Tuple, Set
+from typing import Dict, Any, List, Optional, Tuple, Set, Union
 import sqlglot
 from sqlglot import exp
 
@@ -16,7 +16,7 @@ class ExtractedCondition:
     ):
         self.raw_col = raw_col
         self.schema_col = schema_col
-        self.operator = operator
+        self.operator = operator.upper() if operator.lower() in ["between", "like", "in", "is null", "is not null"] else operator
         self.formatted_value = formatted_value
         self.raw_value = raw_value
         self.logical_op = logical_op.upper()  # "AND" or "OR"
@@ -28,14 +28,16 @@ class ExtractedCondition:
             return f"{col} IS NULL"
         elif self.operator == "IS NOT NULL":
             return f"{col} IS NOT NULL"
+        elif self.operator == "BETWEEN":
+            return f"{col} BETWEEN {self.formatted_value}"
         return f"{col} {self.operator} {self.formatted_value}"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "column": self.schema_col or self.raw_col,
             "raw_col": self.raw_col,
-            "schema_col": self.schema_col,
             "operator": self.operator,
-            "formatted_value": self.formatted_value,
+            "value": self.formatted_value,
             "raw_value": self.raw_value,
             "logical_op": self.logical_op,
             "sql_fragment": self.to_sql_fragment()
@@ -59,19 +61,39 @@ class AnalyzedQuery:
         self.summary_col: Optional[str] = None
         self.selected_columns: List[str] = []
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "table": self.target_table,
+            "columns": self.selected_columns or ["*"],
+            "filters": [c.to_dict() for c in self.conditions],
+            "logical_operator": self.conditions[1].logical_op if len(self.conditions) > 1 else "AND",
+            "order_by": self.order_by_col,
+            "order_direction": self.order_direction,
+            "limit": self.row_limit,
+            "is_count": self.is_count_request,
+            "is_summary": self.is_summary_request,
+            "summary_col": self.summary_col,
+            "needs_clarification": self.needs_clarification,
+            "clarification_message": self.clarification_message,
+            "unmapped_columns": self.unmapped_columns
+        }
+
     def format_for_prompt(self) -> str:
         """Formats the analyzed requirements into explicit instructions for the LLM prompt."""
-        lines = ["### PRE-ANALYZED QUERY REQUIREMENTS (MANDATORY TO PRESERVE):"]
+        lines = ["### PRE-ANALYZED STRUCTURED INTENT (STAGE 1 OUTPUT - MANDATORY TO PRESERVE):"]
         if self.target_table:
-            lines.append(f"- Target Table: {self.target_table}")
+            lines.append(f"- Target Table: \"{self.target_table}\"")
+        if self.is_count_request:
+            lines.append("- Aggregation: COUNT(*) AS total_count")
         if self.conditions:
-            lines.append("- Required WHERE Conditions (DO NOT OMIT ANY):")
+            lines.append("- Required WHERE Conditions (PRESERVE EVERY CONDITION):")
             for i, c in enumerate(self.conditions):
-                lines.append(f"  {i+1}. [{c.logical_op}] {c.to_sql_fragment()}")
+                prefix = f"[{c.logical_op}] " if i > 0 else ""
+                lines.append(f"  {i+1}. {prefix}{c.to_sql_fragment()}")
         if self.is_last_n_request:
             if self.order_by_col:
                 lines.append(f"- Ordering for Last N Rows: ORDER BY \"{self.order_by_col}\" DESC")
-            lines.append(f"- Row Limit: LIMIT {self.row_limit or 10}")
+            lines.append(f"- Row Limit: LIMIT {self.row_limit or 20}")
         elif self.order_by_col:
             lines.append(f"- Ordering: ORDER BY \"{self.order_by_col}\" {self.order_direction or 'ASC'}")
         if self.row_limit and not self.is_last_n_request:
@@ -81,9 +103,10 @@ class AnalyzedQuery:
 
 class NLQueryAnalyzer:
     """
-    Analyzes natural language queries against database schemas to extract
-    every condition, map columns strictly, identify ordering requirements,
-    and cross-check generated SQL.
+    Two-Stage Query Analyzer:
+    Stage 1: Intent Extraction (translates NL query into structured, schema-grounded intent)
+    Stage 2: Deterministic Schema-Grounded SQL Synthesis
+    Independent Validation & Reconciler: AST-based verification against extracted intent
     """
 
     WORD_TO_NUM = {
@@ -96,8 +119,9 @@ class NLQueryAnalyzer:
     @classmethod
     def analyze_query(cls, query: str, schema_info: Dict[str, Any]) -> AnalyzedQuery:
         analyzed = AnalyzedQuery()
-        q_raw = query.strip()
-        q_lower = q_raw.lower()
+        # Clean trailing punctuation
+        q_clean = query.strip().rstrip(".?!;").strip()
+        q_lower = q_clean.lower()
 
         tables = schema_info.get("tables", {})
         table_names = list(tables.keys())
@@ -114,7 +138,7 @@ class NLQueryAnalyzer:
         cls._extract_limits_and_ordering(q_lower, analyzed, target_table, table_cols, table_data)
 
         # 3. Detect Aggregations (COUNT, AVG, SUM, etc.)
-        if any(w in q_lower for w in ["how many", "count", "number of rows", "total number", "count(*)"]):
+        if any(w in q_lower for w in ["how many", "count all", "count of", "number of rows", "total number", "count(*)"]) or q_lower.startswith("count "):
             analyzed.is_count_request = True
         elif any(w in q_lower for w in ["average", "avg", "mean"]):
             analyzed.is_summary_request = True
@@ -126,13 +150,11 @@ class NLQueryAnalyzer:
         # 4. Extract Explicit Column Selection (if requested)
         if any(w in q_lower for w in ["select", "show columns", "display columns", "list columns"]):
             for c_low, c_orig in cols_map.items():
-                # Check if column is mentioned outside the where clause
-                m_col = re.search(rf"\b{re.escape(c_low)}\b", q_lower)
-                if m_col:
+                if re.search(rf"\b{re.escape(c_low)}\b", q_lower):
                     analyzed.selected_columns.append(c_orig)
 
         # 5. Extract Conditions
-        cls._extract_all_conditions(q_raw, cols_map, table_cols, analyzed)
+        cls._extract_all_conditions(q_clean, cols_map, table_cols, analyzed)
 
         return analyzed
 
@@ -144,8 +166,7 @@ class NLQueryAnalyzer:
         # Direct table match in query
         for tname in table_names:
             t_low = tname.lower()
-            pattern = rf"\b{re.escape(t_low)}\b"
-            if re.search(pattern, q_lower):
+            if re.search(rf"\b{re.escape(t_low)}\b", q_lower):
                 return tname
 
         # Plural/singular match
@@ -167,51 +188,54 @@ class NLQueryAnalyzer:
         if best_table and max_matched_cols > 0:
             return best_table
 
-        # Default to first table if only one or as fallback
         return table_names[0]
 
     @classmethod
     def _find_verified_ordering_column(cls, table_cols: List[str], table_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """
-        Rule 6: For 'last N rows', use a verified sequential ID or timestamp column.
-        If no reliable ordering column exists, return (False, None).
+        Rule 4: When a user requests the last N records:
+        - Identify a reliable sequential identifier or timestamp column.
+        - Never assume an arbitrary string or non-sequential ID represents chronological order.
+        - If no reliable ordering column exists, return (False, None) to prompt user.
         """
         cols_meta = {c["name"].lower(): c for c in table_data.get("columns", [])}
 
-        # Priority 1: Timestamp / Datetime columns
+        # Priority 1: Verified Timestamp / Datetime columns
         timestamp_candidates = ["timestamp", "created_at", "creation_date", "updated_at", "datetime", "date", "time"]
         for cand in timestamp_candidates:
             for c_low, c_meta in cols_meta.items():
                 if cand == c_low or cand in c_low:
                     return True, c_meta["name"]
 
-        # Check types for date/time
+        # Check column types for datetime/timestamp/date
         for c_low, c_meta in cols_meta.items():
             ctype = str(c_meta.get("type", "")).upper()
             if any(t in ctype for t in ["DATETIME", "TIMESTAMP", "DATE"]):
                 return True, c_meta["name"]
 
-        # Priority 2: Primary Key sequential column
+        # Priority 2: Primary Key sequential column (INTEGER PRIMARY KEY)
         pk_cols = [pk.lower() for pk in table_data.get("primary_keys", [])]
         for pk in pk_cols:
             if pk in cols_meta:
                 pk_type = str(cols_meta[pk].get("type", "")).upper()
-                if "INT" in pk_type:
+                if any(t in pk_type for t in ["INT", "INTEGER", "BIGINT", "SMALLINT"]):
                     return True, cols_meta[pk]["name"]
 
-        # Priority 3: Sequential ID candidates
+        # Priority 3: Explicit sequential ID candidates that are integer
         id_candidates = ["id", "row_id", "seq", "sequence", "item_id", "record_id"]
         for cand in id_candidates:
             for c_low, c_meta in cols_meta.items():
                 if cand == c_low:
-                    return True, c_meta["name"]
+                    ctype = str(c_meta.get("type", "")).upper()
+                    if any(t in ctype for t in ["INT", "INTEGER", "BIGINT", "SMALLINT", ""]):
+                        return True, c_meta["name"]
 
         # If ending with _id and is integer
         for c_low, c_meta in cols_meta.items():
-            if c_low.endswith("_id") and "INT" in str(c_meta.get("type", "")).upper():
+            if c_low.endswith("_id") and any(t in str(c_meta.get("type", "")).upper() for t in ["INT", "INTEGER", "BIGINT"]):
                 return True, c_meta["name"]
 
-        # No reliable ordering column found
+        # No verified chronological/sequential ordering column found
         return False, None
 
     @classmethod
@@ -250,23 +274,21 @@ class NLQueryAnalyzer:
             raw_lim = limit_m.group(1).lower()
             analyzed.row_limit = cls.WORD_TO_NUM.get(raw_lim, int(raw_lim) if raw_lim.isdigit() else None)
 
-        # Handle Rule 6 for "last N rows"
+        # Handle Section 4 for "last N rows"
         if analyzed.is_last_n_request:
             has_col, ord_col = cls._find_verified_ordering_column(table_cols, table_data)
             if has_col and ord_col:
                 analyzed.order_by_col = ord_col
                 analyzed.order_direction = "DESC"
             else:
-                # Rule 6: If no reliable ordering column exists, ask for clarification. Never guess.
                 analyzed.needs_clarification = True
                 cols_str = ", ".join(table_cols) if table_cols else "none"
                 analyzed.clarification_message = (
                     f"Table '{target_table or 'selected'}' does not have a verified sequential ID or timestamp column. "
-                    f"To display the last records accurately, which column should determine the ordering? "
-                    f"Available columns: {cols_str}."
+                    f"Which column determines the latest records? Available columns: {cols_str}."
                 )
         else:
-            # Check user-requested sorting (e.g. "ordered by salary desc", "highest revenue")
+            # Check user-requested sorting
             sort_m = re.search(r"\b(?:order\s+by|sort\s+by|ordered\s+by|sorted\s+by)\s+([a-zA-Z0-9_]+)(?:\s+(asc|desc|ascending|descending))?", q_lower)
             if sort_m:
                 col_candidate = sort_m.group(1).lower()
@@ -275,8 +297,7 @@ class NLQueryAnalyzer:
                     analyzed.order_by_col = cols_map[col_candidate]
                     direction = sort_m.group(2)
                     analyzed.order_direction = "DESC" if direction and "desc" in direction else "ASC"
-            elif any(w in q_lower for w in ["highest", "best", "greatest", "most", "top"]):
-                # Look for numeric column
+            elif any(w in q_lower for w in ["highest", "best", "greatest", "most"]):
                 for c in table_cols:
                     if any(t in c.lower() for t in ["salary", "revenue", "price", "amount", "score", "marks", "units", "total"]):
                         analyzed.order_by_col = c
@@ -292,9 +313,14 @@ class NLQueryAnalyzer:
         analyzed: AnalyzedQuery
     ):
         """
-        Extracts all conditions from the query, mapping strictly against actual schema columns.
-        Preserves comparison operators, values, and AND/OR relationships.
-        Never substitutes similar column names (Rule 3).
+        Extracts all conditions from the natural language query.
+        Correctly parses comparison phrases:
+        - "is greater than" -> >
+        - "is less than" -> <
+        - "is between X and Y" -> BETWEEN X AND Y
+        - "but" -> AND
+        - "or" -> OR
+        - strictly rejects unmapped columns without substitution.
         """
         # Find WHERE / WITH / HAVING clause
         where_m = re.search(r"\b(?:where|with|having)\b\s+(.*)", q_raw, re.IGNORECASE)
@@ -306,20 +332,45 @@ class NLQueryAnalyzer:
             "",
             clause_str,
             flags=re.IGNORECASE
-        ).strip()
+        ).strip().rstrip(".?!;").strip()
 
-        if not clause_str or clause_str == q_raw and not where_m:
-            # If no explicit WHERE and whole query was kept, check if any "col op val" patterns exist
-            has_condition_hint = any(op in q_raw.lower() for op in ["=", ">", "<", "is", "equals", "contains"])
+        if not clause_str or (clause_str == q_raw and not where_m):
+            # Check if condition hint exists in query
+            has_condition_hint = any(op in q_raw.lower() for op in ["=", ">", "<", "greater", "less", "between", "equals", "is", "like"])
             if not has_condition_hint:
                 return
 
-        # Tokenize by logical connectors: AND / OR / comma
-        # Preserving the delimiter so we know whether it's AND or OR
-        token_parts = re.split(r"(\s*,\s*and\s+|\s+and\s+|\s*,\s*or\s+|\s+or\s+|\s*,\s*)", clause_str, flags=re.IGNORECASE)
+        # 1. Protect BETWEEN X AND Y so 'and' inside BETWEEN is not split as a logical connector
+        def protect_between(m):
+            return f"{m.group(1)} {m.group(2)} {m.group(3)} __BETWEEN_SEP__ {m.group(4)}"
 
+        protected = re.sub(
+            r"\b([a-zA-Z0-9_]+)\s+(is\s+between|between)\s+([^\s]+)\s+and\s+([^\s,]+)",
+            protect_between,
+            clause_str,
+            flags=re.IGNORECASE
+        )
+
+        # 2. Tokenize by logical connectors: AND, BUT, OR, comma
+        token_parts = re.split(
+            r"(\s*,\s*(?:and|but)\s+|\s+(?:and|but)\s+|\s*,\s*or\s+|\s+or\s+|\s*,\s*)",
+            protected,
+            flags=re.IGNORECASE
+        )
+
+        op_pattern_str = (
+            r"(?:"
+            r"is\s+greater\s+than\s+or\s+equal\s+to|greater\s+than\s+or\s+equal\s+to|at\s+least|>=|"
+            r"is\s+less\s+than\s+or\s+equal\s+to|less\s+than\s+or\s+equal\s+to|at\s+most|<=|"
+            r"is\s+not\s+equal\s+to|not\s+equal\s+to|is\s+not|!=|<>|"
+            r"is\s+greater\s+than|greater\s+than|more\s+than|above|higher\s+than|>|"
+            r"is\s+less\s+than|less\s+than|under|below|lower\s+than|<|"
+            r"is\s+equal\s+to|equal\s+to|equals|is|=|=="
+            r"contains|starts\s+with|ends\s+with|like"
+            r")"
+        )
         cond_pattern = re.compile(
-            r"^\s*([a-zA-Z0-9_\s]+?)\s*(=|!=|<>|<=|>=|<|>|\bis\s+not\b|\bis\b|\blike\b|\bequals?\b|\bequal\s+to\b|\bnot\s+equal\s+to\b|\bmore\s+than\b|\bgreater\s+than\b|\bless\s+than\b)\s*(?:\'([^\']*)\'|\"([^\"]*)\"|([^\'\"]+?))\s*$",
+            rf"^\s*([a-zA-Z0-9_\s]+?)\s+({op_pattern_str})\s*(?:\'([^\']*)\'|\"([^\"]*)\"|(.*?))\s*$",
             re.IGNORECASE
         )
 
@@ -330,39 +381,59 @@ class NLQueryAnalyzer:
                 continue
 
             low_part = part_str.lower()
-            if "or" in low_part:
+            if re.fullmatch(r",?\s*or", low_part):
                 current_logical = "OR"
                 continue
-            elif "and" in low_part or part_str == ",":
+            elif re.fullmatch(r",?\s*(?:and|but)|,", low_part):
                 current_logical = "AND"
                 continue
 
-            cm = cond_pattern.match(part_str)
+            # Unprotect BETWEEN
+            part_unprotected = part_str.replace("__BETWEEN_SEP__", "AND")
+
+            # Check for BETWEEN condition
+            between_m = re.match(
+                r"^\s*([a-zA-Z0-9_\s]+?)\s+(?:is\s+)?between\s+([^\s]+)\s+and\s+([^\s]+)\s*$",
+                part_unprotected,
+                re.IGNORECASE
+            )
+            if between_m:
+                raw_col = between_m.group(1).strip()
+                raw_col_clean = re.sub(r"^(?:records|rows|where|show|find|select)\s+", "", raw_col, flags=re.IGNORECASE).strip()
+                val1 = between_m.group(2).strip().strip("'\"")
+                val2 = between_m.group(3).strip().strip("'\"")
+
+                mapped_col = cols_map.get(raw_col_clean.lower())
+                if not mapped_col:
+                    analyzed.unmapped_columns.append(raw_col_clean)
+
+                formatted_val = f"{val1} AND {val2}"
+                condition = ExtractedCondition(
+                    raw_col=raw_col_clean,
+                    schema_col=mapped_col,
+                    operator="BETWEEN",
+                    formatted_value=formatted_val,
+                    raw_value=f"{val1} AND {val2}",
+                    logical_op=current_logical,
+                    raw_text=part_unprotected
+                )
+                analyzed.conditions.append(condition)
+                continue
+
+            # Standard comparison condition
+            cm = cond_pattern.match(part_unprotected)
             if cm:
                 raw_col = cm.group(1).strip()
                 raw_op = cm.group(2).strip().lower()
-                raw_val = cm.group(3) or cm.group(4) or cm.group(5).strip()
+                raw_val = cm.group(3) or cm.group(4) or (cm.group(5).strip() if cm.group(5) else "")
 
-                # Clean potential words like "records", "rows", "where" from raw_col
                 raw_col_clean = re.sub(r"^(?:records|rows|where|show|find|select)\s+", "", raw_col, flags=re.IGNORECASE).strip()
 
-                # Strict Schema Column Mapping (Rule 3)
                 mapped_col = cols_map.get(raw_col_clean.lower())
                 if not mapped_col:
-                    # Also try exact match without case change
-                    for c in table_cols:
-                        if c.lower() == raw_col_clean.lower():
-                            mapped_col = c
-                            break
-
-                if not mapped_col:
-                    # Rule 3: Map columns ONLY using the actual database schema. Never substitute similar column names.
                     analyzed.unmapped_columns.append(raw_col_clean)
 
-                # Normalize operator
                 norm_op = cls._normalize_operator(raw_op)
-
-                # Format value
                 formatted_val = cls._format_value(raw_val, norm_op)
 
                 condition = ExtractedCondition(
@@ -372,32 +443,35 @@ class NLQueryAnalyzer:
                     formatted_value=formatted_val,
                     raw_value=raw_val,
                     logical_op=current_logical,
-                    raw_text=part_str
+                    raw_text=part_unprotected
                 )
                 analyzed.conditions.append(condition)
 
     @classmethod
     def _normalize_operator(cls, raw_op: str) -> str:
-        if raw_op in ["=", "is", "equals", "equal to"]:
+        op = raw_op.lower().strip()
+        if op in ["=", "==", "is", "equals", "equal to", "is equal to"]:
             return "="
-        elif raw_op in ["!=", "<>", "is not", "not equal to"]:
+        elif op in ["!=", "<>", "is not", "not equal to", "is not equal to"]:
             return "!="
-        elif raw_op in [">=", "greater than or equal to", "at least"]:
+        elif op in [">=", "greater than or equal to", "is greater than or equal to", "at least"]:
             return ">="
-        elif raw_op in ["<=", "less than or equal to", "at most"]:
+        elif op in ["<=", "less than or equal to", "is less than or equal to", "at most"]:
             return "<="
-        elif raw_op in [">", "more than", "greater than", "above", "higher than"]:
+        elif op in [">", "greater than", "is greater than", "more than", "above", "higher than"]:
             return ">"
-        elif raw_op in ["<", "less than", "under", "below"]:
+        elif op in ["<", "less than", "is less than", "under", "below", "lower than"]:
             return "<"
-        elif raw_op in ["like", "contains", "starts with", "ends with"]:
+        elif op in ["like", "contains", "starts with", "ends with"]:
             return "LIKE"
+        elif "between" in op:
+            return "BETWEEN"
         return "="
 
     @classmethod
     def _format_value(cls, val: str, op: str) -> str:
-        clean_val = val.strip().strip("'\"")
-        # Check if numeric
+        clean_val = val.strip().strip("'\"").rstrip(".?!;").strip()
+        # Numeric check
         if re.match(r"^-?\d+(?:\.\d+)?$", clean_val):
             return clean_val
         elif clean_val.lower() in ["true", "false"]:
@@ -407,9 +481,52 @@ class NLQueryAnalyzer:
         else:
             if op == "LIKE" and not clean_val.startswith("%") and not clean_val.endswith("%"):
                 clean_val = f"%{clean_val}%"
-            # Escape single quotes for SQLite
             escaped = clean_val.replace("'", "''")
             return f"'{escaped}'"
+
+    @classmethod
+    def synthesize_sql_from_intent(cls, analyzed: AnalyzedQuery, schema_info: Dict[str, Any]) -> str:
+        """
+        Stage 2 Deterministic Generator: Synthesizes valid, schema-grounded SQLite query
+        strictly adhering to Stage 1 analyzed intent.
+        """
+        target_table = analyzed.target_table or list(schema_info.get("tables", {}).keys())[0]
+
+        # 1. Projections
+        if analyzed.is_count_request:
+            cols_clause = "COUNT(*) AS total_count"
+        elif analyzed.is_summary_request and analyzed.summary_col:
+            sc = analyzed.summary_col
+            cols_clause = f'ROUND(AVG("{sc}"), 2) AS average_{sc}, MIN("{sc}") AS min_{sc}, MAX("{sc}") AS max_{sc}, COUNT(*) AS total_count'
+        elif analyzed.selected_columns:
+            cols_clause = ", ".join([f'"{c}"' for c in analyzed.selected_columns])
+        else:
+            cols_clause = "*"
+
+        # 2. WHERE Clause
+        where_clause = ""
+        if analyzed.conditions:
+            cond_frags = []
+            for i, c in enumerate(analyzed.conditions):
+                frag = c.to_sql_fragment()
+                if i == 0:
+                    cond_frags.append(frag)
+                else:
+                    cond_frags.append(f"{c.logical_op} {frag}")
+            where_clause = f" WHERE {' '.join(cond_frags)}"
+
+        # 3. ORDER BY Clause
+        order_clause = ""
+        if analyzed.is_last_n_request and analyzed.order_by_col:
+            order_clause = f' ORDER BY "{analyzed.order_by_col}" DESC'
+        elif analyzed.order_by_col:
+            direction = analyzed.order_direction or "ASC"
+            order_clause = f' ORDER BY "{analyzed.order_by_col}" {direction}'
+
+        # 4. LIMIT Clause
+        limit_clause = f" LIMIT {analyzed.row_limit}" if analyzed.row_limit else ""
+
+        return f'SELECT {cols_clause} FROM "{target_table}"{where_clause}{order_clause}{limit_clause}'
 
     @classmethod
     def reconcile_and_verify(
@@ -419,14 +536,14 @@ class NLQueryAnalyzer:
         schema_info: Dict[str, Any]
     ) -> Tuple[bool, str, Optional[str], Optional[str]]:
         """
-        Cross-checks generated SQL against analyzed user requirements (Rule 7).
-        Enforces:
-        - If clarification is needed, blocks execution and requests clarification (Rule 6).
-        - If unmapped columns exist, returns validation error (Rule 3).
-        - Preserves every condition in the WHERE clause (Rule 4, 5, 8).
-        - Verifies 'last N rows' uses verified DESC ordering (Rule 6).
-        - Generates consistent explanation describing every condition (Rule 9).
-        - Preserves strict read-only SQL enforcement (Rule 10).
+        AST-based independent validation & reconciliation layer:
+        - Verifies table existence
+        - Verifies column existence against actual database schema
+        - Verifies all WHERE filters, operators, values, and AND/OR relationships
+        - Injects dropped filters if missing
+        - Verifies ORDER BY and LIMIT
+        - Generates explanation derived strictly from the validated AST
+        - Preserves read-only enforcement
         """
         if analyzed.needs_clarification:
             return False, "", analyzed.clarification_message, analyzed.clarification_message
@@ -436,8 +553,8 @@ class NLQueryAnalyzer:
             table_cols = [c["name"] for c in schema_info.get("tables", {}).get(target, {}).get("columns", [])]
             cols_list = ", ".join(table_cols) if table_cols else "none"
             err = (
-                f"Column '{', '.join(analyzed.unmapped_columns)}' does not exist in table '{target}'. "
-                f"Strict schema adherence required (Rule 3). Available columns: {cols_list}."
+                f"Referenced column(s) '{', '.join(analyzed.unmapped_columns)}' do not exist in table '{target}'. "
+                f"Strict schema adherence required (Rule 3). Column substitution is prohibited. Available columns: {cols_list}."
             )
             return False, generated_sql, err, None
 
@@ -452,31 +569,24 @@ class NLQueryAnalyzer:
         except Exception as parse_err:
             return False, generated_sql, f"SQL Parse Error: {str(parse_err)}", None
 
-        # Check conditions in WHERE clause
+        # 1. Verify and reconcile WHERE filters
         where_node = expression.find(exp.Where)
         where_sql = where_node.sql(dialect="sqlite").lower() if where_node else ""
 
-        missing_conditions: List[ExtractedCondition] = []
         for cond in analyzed.conditions:
             if not cond.schema_col:
                 continue
             col_search = cond.schema_col.lower()
-            val_search = cond.raw_value.lower()
+            val_search = str(cond.raw_value).lower()
 
-            # Check if column and value are represented in the WHERE clause
             is_present = (col_search in where_sql) and (val_search in where_sql)
             if not is_present:
-                missing_conditions.append(cond)
-
-        # Rule 8: If any condition is missing, regenerate/reconcile AST
-        if missing_conditions:
-            for missing in missing_conditions:
-                frag = missing.to_sql_fragment()
+                # Missing or corrupted filter: inject via AST
+                frag = cond.to_sql_fragment()
                 try:
                     frag_ast = sqlglot.parse_one(frag, read="sqlite")
                     if where_node:
-                        # Combine with proper logical operator (AND or OR)
-                        if missing.logical_op == "OR":
+                        if cond.logical_op == "OR":
                             new_where_expr = exp.Or(this=where_node.this, expression=frag_ast)
                         else:
                             new_where_expr = exp.And(this=where_node.this, expression=frag_ast)
@@ -484,44 +594,57 @@ class NLQueryAnalyzer:
                     else:
                         expression = expression.where(frag_ast)
                         where_node = expression.find(exp.Where)
+                    where_sql = where_node.sql(dialect="sqlite").lower() if where_node else ""
                 except Exception as inject_err:
-                    return False, generated_sql, f"Validation failed: Condition '{missing.raw_text}' was dropped and could not be injected: {inject_err}", None
+                    return False, generated_sql, f"Validation failed: Condition '{cond.raw_text}' was dropped and could not be injected: {inject_err}", None
 
-        # Rule 6 & 2: Check ordering and limits for "last N rows"
-        if analyzed.is_last_n_request:
-            if analyzed.order_by_col:
-                # Ensure ORDER BY "{col}" DESC is in AST
-                order_node = expression.find(exp.Order)
-                expected_order_sql = f'ORDER BY "{analyzed.order_by_col}" DESC'
-                if not order_node or analyzed.order_by_col.lower() not in order_node.sql(dialect="sqlite").lower() or "desc" not in order_node.sql(dialect="sqlite").lower():
-                    try:
-                        dummy = sqlglot.parse_one(f'SELECT 1 {expected_order_sql}', read='sqlite')
-                        expression.set("order", dummy.find(exp.Order))
-                    except Exception:
-                        pass
+        # 2. Check COUNT aggregation if requested
+        if analyzed.is_count_request:
+            has_count = any(isinstance(c, exp.Count) or "count" in c.sql().lower() for c in expression.find_all(exp.Func))
+            if not has_count:
+                expression.set("expressions", [sqlglot.parse_one("COUNT(*) AS total_count")])
 
-            if analyzed.row_limit:
-                limit_node = expression.find(exp.Limit)
-                if not limit_node:
-                    expression = expression.limit(analyzed.row_limit)
-                else:
-                    limit_node.set("expression", exp.Literal.number(analyzed.row_limit))
+        # 3. Check ordering and limits
+        if analyzed.is_last_n_request and analyzed.order_by_col:
+            order_node = expression.find(exp.Order)
+            expected_order_sql = f'ORDER BY "{analyzed.order_by_col}" DESC'
+            if not order_node or analyzed.order_by_col.lower() not in order_node.sql(dialect="sqlite").lower() or "desc" not in order_node.sql(dialect="sqlite").lower():
+                try:
+                    dummy = sqlglot.parse_one(f"SELECT 1 {expected_order_sql}", read="sqlite")
+                    expression.set("order", dummy.find(exp.Order))
+                except Exception:
+                    pass
+
+        if analyzed.row_limit:
+            limit_node = expression.find(exp.Limit)
+            if not limit_node:
+                expression = expression.limit(analyzed.row_limit)
+            else:
+                limit_node.set("expression", exp.Literal.number(analyzed.row_limit))
 
         final_sql = expression.sql(dialect="sqlite")
 
-        # Rule 9: Ensure explanation accurately reflects every condition in the generated SQL
+        # 4. Generate Explanation directly from the validated AST & requirements (Section 8)
         explanation_parts = []
-        if analyzed.target_table:
-            explanation_parts.append(f"Retrieves records from '{analyzed.target_table}'")
+        target = analyzed.target_table or "table"
+        if analyzed.is_count_request:
+            explanation_parts.append(f"Counts all records in table '{target}'")
         else:
-            explanation_parts.append("Retrieves records")
+            explanation_parts.append(f"Retrieves records from table '{target}'")
 
         if analyzed.conditions:
-            cond_descs = [f"{c.schema_col} {c.operator} {c.formatted_value}" for c in analyzed.conditions if c.schema_col]
-            explanation_parts.append(f"where {' and '.join(cond_descs)}")
+            cond_descs = []
+            for c in analyzed.conditions:
+                if c.schema_col:
+                    if c.operator == "BETWEEN":
+                        cond_descs.append(f"{c.schema_col} between {c.formatted_value}")
+                    else:
+                        cond_descs.append(f"{c.schema_col} {c.operator} {c.formatted_value}")
+            join_word = " or " if (len(analyzed.conditions) > 1 and analyzed.conditions[1].logical_op == "OR") else " and "
+            explanation_parts.append(f"where {join_word.join(cond_descs)}")
 
         if analyzed.is_last_n_request and analyzed.order_by_col:
-            explanation_parts.append(f"ordered by {analyzed.order_by_col} descending (latest {analyzed.row_limit or 10} records)")
+            explanation_parts.append(f"ordered by {analyzed.order_by_col} descending (latest {analyzed.row_limit or 20} records)")
         elif analyzed.order_by_col:
             explanation_parts.append(f"ordered by {analyzed.order_by_col} {analyzed.order_direction or 'ASC'}")
 

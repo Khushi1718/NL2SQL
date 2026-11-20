@@ -2,7 +2,7 @@ import time
 import csv
 import io
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from sqlalchemy import create_engine, text
 from database_manager import DatabaseManager, DEFAULT_BENCHMARK_DB_ID
@@ -36,8 +36,8 @@ class QueryService:
         sqlite_path = DatabaseManager.materialize_database(db_id)
         schema_info = DatabaseManager.inspect_sqlite_schema(sqlite_path)
 
-        # 2. Extract and pre-analyze requirements from NL query (Rule 1, 2, 3)
-        analyzed = NLQueryAnalyzer.analyze_query(natural_language_query, schema_info)
+        # 2. Stage 1: Extract and pre-analyze requirements from NL query (Two-Stage Pipeline)
+        analyzed = llm_service.stage1_extract_intent(natural_language_query, schema_info)
 
         # 3. Rule 6: Clarification check for "last N rows"
         if analyzed.needs_clarification:
@@ -201,7 +201,7 @@ class QueryService:
                 "execution_time_ms": 0.0,
                 "row_count": 0,
                 "error_message": error_msg,
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             })
 
             return {
@@ -259,7 +259,7 @@ class QueryService:
                 "execution_time_ms": execution_time_ms,
                 "row_count": row_count,
                 "error_message": execution_err,
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             })
         except Exception as mongo_err:
             print(f"[MongoDB Query History Save Warning] {mongo_err}")

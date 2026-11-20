@@ -55,9 +55,6 @@ export default function MyDatabases({ onSelectDatabaseForQuery, onDatabasesChang
       const data = await fetchAllDatabases();
       setDatabases(data.databases || []);
       setMongoStatus(data.mongodb_status || null);
-      if (onDatabasesChanged) {
-        onDatabasesChanged();
-      }
     } catch (err) {
       console.error('Failed to load databases', err);
     } finally {
@@ -96,6 +93,9 @@ export default function MyDatabases({ onSelectDatabaseForQuery, onDatabasesChang
         message: `Database '${res.database.database_name}' uploaded and persisted in MongoDB GridFS successfully!`,
       });
       loadDatabases();
+      if (onDatabasesChanged) {
+        onDatabasesChanged();
+      }
       setTimeout(() => {
         setShowUploadModal(false);
         setFile(null);
@@ -121,6 +121,9 @@ export default function MyDatabases({ onSelectDatabaseForQuery, onDatabasesChang
     try {
       await deleteDatabase(databaseId);
       loadDatabases();
+      if (onDatabasesChanged) {
+        onDatabasesChanged();
+      }
     } catch (err) {
       alert('Failed to delete database: ' + (err.response?.data?.detail || err.message));
     }

@@ -1,8 +1,9 @@
 import os
 import json
 import re
-from typing import Dict, Any, Optional, List
-from services.nl_query_analyzer import NLQueryAnalyzer, AnalyzedQuery
+from typing import Dict, Any, Optional, List, Tuple
+from services.nl_query_analyzer import NLQueryAnalyzer, AnalyzedQuery, ExtractedCondition
+from schema_inspector import format_schema_for_prompt
 
 class LLMService:
     def __init__(self):
@@ -27,6 +28,173 @@ class LLMService:
     def is_configured(self) -> bool:
         return bool(self.api_key)
 
+    def stage1_extract_intent(self, user_question: str, schema_info: Dict[str, Any]) -> AnalyzedQuery:
+        """
+        Stage 1: Intent Extraction
+        Converts the user's natural language request into a validated, structured intent representation
+        containing table, filters, operators, values, logical relationships, sorting, grouping, and limits.
+        Uses Gemini when available, verified and supplemented by deterministic schema grounding.
+        """
+        # Always run deterministic extraction as ground-truth baseline
+        deterministic_intent = NLQueryAnalyzer.analyze_query(user_question, schema_info)
+
+        if not self.api_key or self.demo_mode:
+            return deterministic_intent
+
+        try:
+            schema_str = format_schema_for_prompt(schema_info)
+            prompt = f"""You are a precise Database Intent Extractor.
+Extract the user's inquiry into structured JSON strictly matching the database schema.
+
+{schema_str}
+
+User Question: "{user_question.strip()}"
+
+### EXTRACTION RULES:
+1. Target table MUST be an exact table from the schema.
+2. Filter column names MUST be exact column names from the schema. Never invent or rename columns.
+3. Operators MUST be standard comparison operators: ">", "<", ">=", "<=", "=", "!=", "BETWEEN", "LIKE", "IS NULL".
+4. Values MUST be raw literals (e.g. 2, 5.0, "Iris-setosa"). NEVER put natural language instructions inside values.
+5. If the user asks for "last N rows", verify if a sequential ID or timestamp exists. If none exists, set needs_clarification=true.
+
+Return ONLY a JSON object:
+{{
+  "table": "table_name",
+  "columns": ["*"],
+  "filters": [
+    {{
+      "column": "col_name",
+      "operator": ">",
+      "value": "2",
+      "logical_op": "AND"
+    }}
+  ],
+  "logical_operator": "AND",
+  "order_by": null,
+  "order_direction": null,
+  "limit": null,
+  "is_count": false,
+  "needs_clarification": false,
+  "clarification_message": null
+}}"""
+            response_json = self._call_gemini_api_json(prompt)
+            if response_json and isinstance(response_json, dict) and "filters" in response_json:
+                # Merge and validate Gemini output with deterministic rules
+                tables = schema_info.get("tables", {})
+                tbl = response_json.get("table")
+                if tbl in tables:
+                    deterministic_intent.target_table = tbl
+
+                # If Gemini successfully identified filters, verify against schema
+                gemini_filters = response_json.get("filters", [])
+                if gemini_filters and isinstance(gemini_filters, list):
+                    tbl_cols = {c["name"].lower(): c["name"] for c in tables.get(deterministic_intent.target_table, {}).get("columns", [])}
+                    valid_conditions = []
+                    for gf in gemini_filters:
+                        col_raw = gf.get("column", "")
+                        col_clean = tbl_cols.get(col_raw.lower())
+                        if col_clean:
+                            valid_conditions.append(ExtractedCondition(
+                                raw_col=col_raw,
+                                schema_col=col_clean,
+                                operator=gf.get("operator", "="),
+                                formatted_value=str(gf.get("value", "")),
+                                raw_value=str(gf.get("value", "")),
+                                logical_op=gf.get("logical_op", "AND")
+                            ))
+                    if valid_conditions and len(valid_conditions) >= len(deterministic_intent.conditions):
+                        deterministic_intent.conditions = valid_conditions
+
+                if response_json.get("limit"):
+                    try:
+                        deterministic_intent.row_limit = int(response_json["limit"])
+                    except Exception:
+                        pass
+
+                if response_json.get("order_by"):
+                    ord_c = response_json.get("order_by")
+                    tbl_cols = {c["name"].lower(): c["name"] for c in tables.get(deterministic_intent.target_table, {}).get("columns", [])}
+                    if ord_c.lower() in tbl_cols:
+                        deterministic_intent.order_by_col = tbl_cols[ord_c.lower()]
+                        deterministic_intent.order_direction = response_json.get("order_direction", "ASC")
+
+                if response_json.get("is_count"):
+                    deterministic_intent.is_count_request = True
+
+        except Exception as e:
+            print(f"[Stage 1 Gemini Intent Warning] {e}. Using deterministic intent.")
+
+        return deterministic_intent
+
+    def stage2_generate_sql(
+        self,
+        user_question: str,
+        schema_info: Dict[str, Any],
+        analyzed_intent: AnalyzedQuery
+    ) -> Dict[str, Any]:
+        """
+        Stage 2: SQL Generation
+        Generates SQLite syntax from:
+        - Original user query
+        - Actual database schema
+        - Validated structured intent from Stage 1
+        - Selected database dialect (SQLite)
+        Strictly forbids altering, dropping, or substituting Stage 1 requirements.
+        """
+        # Baseline deterministic SQL
+        baseline_sql = NLQueryAnalyzer.synthesize_sql_from_intent(analyzed_intent, schema_info)
+
+        if not self.api_key or self.demo_mode:
+            reasons = [f"1. Identified target table '{analyzed_intent.target_table}'."]
+            if analyzed_intent.conditions:
+                reasons.append(f"2. Preserved all {len(analyzed_intent.conditions)} filter conditions.")
+            if analyzed_intent.order_by_col:
+                reasons.append(f"3. Applied ordering: ORDER BY \"{analyzed_intent.order_by_col}\" {analyzed_intent.order_direction or 'ASC'}.")
+            if analyzed_intent.row_limit:
+                reasons.append(f"4. Applied row limit: LIMIT {analyzed_intent.row_limit}.")
+
+            return {
+                "thought_process": "\n".join(reasons),
+                "sql_query": baseline_sql,
+                "explanation": f"Generated schema-grounded query for table '{analyzed_intent.target_table}'."
+            }
+
+        try:
+            schema_str = format_schema_for_prompt(schema_info)
+            intent_str = json.dumps(analyzed_intent.to_dict(), indent=2)
+
+            prompt = f"""You are an expert SQL Generator.
+Generate SQLite SQL matching this exact validated intent:
+
+{schema_str}
+
+Validated Intent from Stage 1:
+{intent_str}
+
+Original Inquiry: "{user_question.strip()}"
+
+### STRICT RULES:
+1. Generate standard SQLite SELECT query.
+2. DO NOT omit, drop, rename, or substitute any filter condition from Stage 1.
+3. Use exact quoted identifiers: "{analyzed_intent.target_table}".
+4. Return ONLY valid JSON:
+{{
+  "thought_process": "Step-by-step reasoning explaining how every filter is preserved.",
+  "sql_query": "The clean SQLite query.",
+  "explanation": "Concise human-readable explanation matching the query."
+}}"""
+            response = self._call_gemini_api(prompt)
+            if response.get("sql_query"):
+                return response
+        except Exception as e:
+            print(f"[Stage 2 Gemini Generation Warning] {e}. Using deterministic SQL.")
+
+        return {
+            "thought_process": "Deterministic synthesis based on Stage 1 validated intent.",
+            "sql_query": baseline_sql,
+            "explanation": f"Query derived from natural language inquiry on table '{analyzed_intent.target_table}'."
+        }
+
     def generate_sql(
         self,
         full_prompt: str,
@@ -35,50 +203,84 @@ class LLMService:
         analyzed_query: Optional[AnalyzedQuery] = None
     ) -> Dict[str, Any]:
         """
-        Translates NL question to SQL using either live Gemini API or intelligent schema-grounded Engine.
+        Orchestrates Two-Stage Pipeline:
+        Stage 1: Intent Extraction
+        Stage 2: Schema-Grounded SQL Generation
         """
-        if self.api_key and not self.demo_mode:
-            try:
-                return self._call_gemini_api(full_prompt)
-            except Exception as e:
-                print(f"[Gemini API Warning] {str(e)}. Falling back to schema-grounded engine.")
-                result = self._generate_schema_grounded_demo(user_question, schema_info, analyzed_query)
-                result["explanation"] += f" (Note: Evaluated via schema-grounded engine: {str(e)})"
-                return result
+        schema = schema_info or {"tables": {}}
+        if not schema.get("tables"):
+            return {
+                "thought_process": "No tables detected in database schema.",
+                "sql_query": "SELECT 'No tables available' AS status",
+                "explanation": "Cannot query an empty database."
+            }
 
-        # Intelligent Schema-Grounded Engine
-        return self._generate_schema_grounded_demo(user_question, schema_info, analyzed_query)
+        # Stage 1: Intent Extraction
+        intent = analyzed_query or self.stage1_extract_intent(user_question, schema)
+
+        # Clarification check
+        if intent.needs_clarification:
+            return {
+                "thought_process": "Checked database schema for sequential ID or timestamp column. None found.",
+                "sql_query": "",
+                "explanation": intent.clarification_message,
+                "needs_clarification": True
+            }
+
+        # Unmapped column check
+        if intent.unmapped_columns:
+            target = intent.target_table or list(schema["tables"].keys())[0]
+            cols = [c["name"] for c in schema["tables"].get(target, {}).get("columns", [])]
+            err = f"Referenced column(s) '{', '.join(intent.unmapped_columns)}' do not exist in table '{target}'. Strict schema adherence required (Rule 3). Column substitution is prohibited. Available columns: {', '.join(cols)}."
+            return {
+                "thought_process": f"Strict schema validation failed: unmapped column(s) {intent.unmapped_columns}.",
+                "sql_query": "",
+                "explanation": err,
+                "validation_error": err
+            }
+
+        # Stage 2: SQL Generation
+        return self.stage2_generate_sql(user_question, schema, intent)
 
     def _call_gemini_api(self, prompt: str) -> Dict[str, Any]:
         """Calls the real Google Gemini API via the google-genai client."""
-        try:
-            from google import genai
-            from google.genai import types
+        from google import genai
+        from google.genai import types
 
-            client = genai.Client(api_key=self.api_key)
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    response_mime_type="application/json"
-                )
+        client = genai.Client(api_key=self.api_key)
+        response = client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json"
             )
+        )
+        return self._parse_json_response(response.text.strip())
 
-            text_output = response.text.strip()
-            return self._parse_json_response(text_output)
-        except Exception as e:
-            try:
-                from google import genai
-                client = genai.Client(api_key=self.api_key)
-                response = client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt
-                )
-                text_output = response.text.strip()
-                return self._parse_json_response(text_output)
-            except Exception:
-                raise e
+    def _call_gemini_api_json(self, prompt: str) -> Optional[Dict[str, Any]]:
+        """Calls Gemini API and parses response directly as JSON dict."""
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self.api_key)
+        response = client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                response_mime_type="application/json"
+            )
+        )
+        text = response.text.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
 
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
         """Extracts and parses JSON object from LLM response."""
@@ -105,153 +307,6 @@ class LLMService:
             "thought_process": "Extracted SQL expression from raw LLM output stream.",
             "sql_query": sql,
             "explanation": "Extracted query based on user's natural language input."
-        }
-
-    def _generate_schema_grounded_demo(
-        self,
-        question: str,
-        schema_info: Optional[Dict[str, Any]] = None,
-        analyzed_query: Optional[AnalyzedQuery] = None
-    ) -> Dict[str, Any]:
-        """
-        Synthesizes precise, schema-grounded SQL matching the selected database's
-        actual tables and columns, strictly adhering to the 10 mandatory rules:
-        - Extracts EVERY condition
-        - Preserves columns, operators, values, and AND/OR relationships
-        - Maps columns ONLY using actual database schema (no substitutions)
-        - For 'last N rows', uses verified sequential ID / timestamp with DESC
-        - Generates consistent explanation describing every operation
-        """
-        schema = schema_info or {"tables": {}}
-        tables = schema.get("tables", {})
-        table_names = list(tables.keys())
-
-        if not table_names:
-            return {
-                "thought_process": "No tables detected in database schema.",
-                "sql_query": "SELECT 'No tables available' AS status",
-                "explanation": "Cannot query an empty database."
-            }
-
-        analyzed = analyzed_query or NLQueryAnalyzer.analyze_query(question, schema)
-
-        # Rule 6: If clarification needed for "last N rows"
-        if analyzed.needs_clarification:
-            return {
-                "thought_process": "Checked database schema for sequential ID or timestamp column. None found.",
-                "sql_query": "",
-                "explanation": analyzed.clarification_message,
-                "needs_clarification": True
-            }
-
-        # Rule 3: If unmapped columns exist
-        if analyzed.unmapped_columns:
-            target = analyzed.target_table or table_names[0]
-            cols = [c["name"] for c in tables.get(target, {}).get("columns", [])]
-            return {
-                "thought_process": f"Strict schema validation: Column(s) '{', '.join(analyzed.unmapped_columns)}' do not exist in table '{target}'.",
-                "sql_query": "",
-                "explanation": f"Column '{', '.join(analyzed.unmapped_columns)}' does not exist in table '{target}'. Available columns: {', '.join(cols)}.",
-                "validation_error": f"Column '{', '.join(analyzed.unmapped_columns)}' does not exist in table '{target}'."
-            }
-
-        matched_table = analyzed.target_table or table_names[0]
-        table_cols = [c["name"] for c in tables.get(matched_table, {}).get("columns", [])]
-
-        # Multi-Table Benchmark Schemas (if applicable)
-        q_low = question.lower()
-        if "student" in q_low and "marks" in q_low and "courses" in tables and "enrollments" in tables:
-            val = "80"
-            for c in analyzed.conditions:
-                if "score" in c.raw_col.lower() or "mark" in c.raw_col.lower():
-                    val = c.formatted_value
-                    break
-            return {
-                "thought_process": f"1. Joined 'students', 'enrollments', and 'courses'.\n2. Filtered score_marks > {val}.\n3. Ordered descending by score.",
-                "sql_query": f"SELECT s.first_name, s.last_name, s.major, c.title AS course_title, e.score_marks, e.grade FROM students s JOIN enrollments e ON s.id = e.student_id JOIN courses c ON e.course_id = c.id WHERE e.score_marks > {val} ORDER BY e.score_marks DESC",
-                "explanation": f"Retrieves students who scored more than {val} marks in course enrollments."
-            }
-
-        if "customer" in q_low and ("purchase" in q_low or "spent" in q_low) and "orders" in tables and "customers" in tables:
-            n = analyzed.row_limit or 5
-            return {
-                "thought_process": f"1. Joined 'customers' and 'orders'.\n2. Grouped by customer and aggregated SUM(total_amount).\n3. Clamped to top {n}.",
-                "sql_query": f"SELECT c.id, c.name, c.email, c.city, c.country, ROUND(SUM(o.total_amount), 2) AS total_purchase_amount FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id, c.name, c.email, c.city, c.country ORDER BY total_purchase_amount DESC LIMIT {n}",
-                "explanation": f"Ranks top {n} customers by total purchase volume."
-            }
-
-        if "employee" in q_low and "department" in q_low and "departments" in tables and "employees" in tables:
-            return {
-                "thought_process": "1. Left joined 'departments' and 'employees'.\n2. Grouped by department and counted headcount.",
-                "sql_query": "SELECT d.name AS department_name, d.building, COUNT(e.id) AS employee_count, ROUND(AVG(e.salary), 2) AS avg_salary FROM departments d LEFT JOIN employees e ON d.id = e.department_id GROUP BY d.id, d.name, d.building ORDER BY employee_count DESC",
-                "explanation": "Counts employees and calculates average salary per department."
-            }
-
-        # 1. Projections
-        if analyzed.is_count_request:
-            cols_clause = "COUNT(*) AS total_count"
-        elif analyzed.is_summary_request and analyzed.summary_col:
-            sc = analyzed.summary_col
-            cols_clause = f'ROUND(AVG("{sc}"), 2) AS average_{sc}, MIN("{sc}") AS min_{sc}, MAX("{sc}") AS max_{sc}, COUNT(*) AS total_count'
-        elif analyzed.selected_columns:
-            cols_clause = ", ".join([f'"{c}"' for c in analyzed.selected_columns])
-        else:
-            cols_clause = "*"
-
-        # 2. WHERE Clause (Rule 1, 2, 4, 5)
-        where_clause = ""
-        if analyzed.conditions:
-            cond_frags = []
-            for i, c in enumerate(analyzed.conditions):
-                if i == 0:
-                    cond_frags.append(c.to_sql_fragment())
-                else:
-                    cond_frags.append(f"{c.logical_op} {c.to_sql_fragment()}")
-            where_clause = f" WHERE {' '.join(cond_frags)}"
-
-        # 3. ORDER BY Clause (Rule 2, 6)
-        order_clause = ""
-        if analyzed.is_last_n_request:
-            if analyzed.order_by_col:
-                order_clause = f' ORDER BY "{analyzed.order_by_col}" DESC'
-        elif analyzed.order_by_col:
-            direction = analyzed.order_direction or "ASC"
-            order_clause = f' ORDER BY "{analyzed.order_by_col}" {direction}'
-
-        # 4. LIMIT Clause
-        limit_clause = f" LIMIT {analyzed.row_limit}" if analyzed.row_limit else ""
-
-        # Assemble SQL
-        sql = f'SELECT {cols_clause} FROM "{matched_table}"{where_clause}{order_clause}{limit_clause}'
-
-        # Reasoning (thought_process)
-        reasons = [f"1. Identified target table '{matched_table}' from active database."]
-        if analyzed.conditions:
-            cond_summary = ", ".join([c.to_sql_fragment() for c in analyzed.conditions])
-            reasons.append(f"2. Extracted and preserved all conditions: {cond_summary}.")
-        if analyzed.order_by_col:
-            reasons.append(f"3. Applied verified ordering: ORDER BY \"{analyzed.order_by_col}\" {analyzed.order_direction or ('DESC' if analyzed.is_last_n_request else 'ASC')}.")
-        if analyzed.row_limit:
-            reasons.append(f"4. Applied row limit: LIMIT {analyzed.row_limit}.")
-
-        # Explanation (Rule 9)
-        exp_parts = [f"Retrieves records from table '{matched_table}'"]
-        if analyzed.conditions:
-            cond_descs = [f"{c.schema_col} {c.operator} {c.formatted_value}" for c in analyzed.conditions]
-            exp_parts.append(f"where {' and '.join(cond_descs)}")
-        if analyzed.is_last_n_request and analyzed.order_by_col:
-            exp_parts.append(f"ordered by {analyzed.order_by_col} descending (latest {analyzed.row_limit or 10} records)")
-        elif analyzed.order_by_col:
-            exp_parts.append(f"ordered by {analyzed.order_by_col} {analyzed.order_direction or 'ASC'}")
-        if analyzed.row_limit and not analyzed.is_last_n_request:
-            exp_parts.append(f"limited to {analyzed.row_limit} rows")
-
-        explanation = " ".join(exp_parts) + "."
-
-        return {
-            "thought_process": "\n".join(reasons),
-            "sql_query": sql,
-            "explanation": explanation
         }
 
 llm_service = LLMService()

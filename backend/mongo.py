@@ -37,6 +37,12 @@ def get_mongo_client() -> Optional[MongoClient]:
             # Test connection
             _client.admin.command("ping")
         except Exception as e:
+            if _client is not None:
+                try:
+                    _client.close()
+                except Exception:
+                    pass
+                _client = None
             try:
                 _client = MongoClient(
                     "mongodb://127.0.0.1:27017",
@@ -45,6 +51,11 @@ def get_mongo_client() -> Optional[MongoClient]:
                 )
                 _client.admin.command("ping")
             except Exception as e2:
+                if _client is not None:
+                    try:
+                        _client.close()
+                    except Exception:
+                        pass
                 _client = None
     return _client
 
