@@ -108,11 +108,9 @@ MAX_ROWS_LIMIT=500
 ### 2. Backend Setup
 
 ```bash
-cd backend
-python3 -m venv venv
 source venv/bin/activate    # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+cd backend
+uvicorn main:app --host 127.0.0.1 --port 8008 --reload
 ```
 
 ---
