@@ -1,4 +1,8 @@
 import os
+import json
+import secrets
+import hashlib
+from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 from bson import ObjectId
@@ -27,22 +31,20 @@ def get_mongo_client() -> Optional[MongoClient]:
         try:
             _client = MongoClient(
                 MONGODB_URI,
-                serverSelectionTimeoutMS=2500,
-                connectTimeoutMS=2500
+                serverSelectionTimeoutMS=800,
+                connectTimeoutMS=800
             )
             # Test connection
             _client.admin.command("ping")
         except Exception as e:
-            print(f"[MongoDB Primary URI Failed: {e}]. Attempting local fallback mongodb://127.0.0.1:27017")
             try:
                 _client = MongoClient(
                     "mongodb://127.0.0.1:27017",
-                    serverSelectionTimeoutMS=2000,
-                    connectTimeoutMS=2000
+                    serverSelectionTimeoutMS=800,
+                    connectTimeoutMS=800
                 )
                 _client.admin.command("ping")
             except Exception as e2:
-                print(f"[MongoDB Fallback Failed: {e2}]")
                 _client = None
     return _client
 
@@ -89,87 +91,178 @@ def init_mongo_indexes():
         print(f"[MongoDB Index Warning] {e}")
 
 
-# --- GridFS File Operations ---
+# --- GridFS & Fallback Storage Operations ---
+
+GRIDFS_FALLBACK_DIR = Path(__file__).parent / "storage" / "gridfs_fallback"
+FALLBACK_DB_REGISTRY = Path(__file__).parent / "data" / "databases_registry.json"
+
+def _ensure_storage_fallback():
+    GRIDFS_FALLBACK_DIR.mkdir(parents=True, exist_ok=True)
+    FALLBACK_DB_REGISTRY.parent.mkdir(parents=True, exist_ok=True)
+    if not FALLBACK_DB_REGISTRY.exists():
+        FALLBACK_DB_REGISTRY.write_text("[]", encoding="utf-8")
+
+def _load_fallback_db_meta() -> List[Dict[str, Any]]:
+    _ensure_storage_fallback()
+    try:
+        return json.loads(FALLBACK_DB_REGISTRY.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+def _save_fallback_db_meta(dbs: List[Dict[str, Any]]):
+    _ensure_storage_fallback()
+    FALLBACK_DB_REGISTRY.write_text(json.dumps(dbs, indent=2), encoding="utf-8")
 
 def save_file_to_gridfs(file_bytes: bytes, filename: str, metadata: Optional[Dict[str, Any]] = None) -> str:
-    """Stores binary file persistently in GridFS and returns the ObjectId string."""
+    """Stores binary file in GridFS (with disk fallback) and returns the reference string."""
+    _ensure_storage_fallback()
     fs = get_gridfs()
-    if fs is None:
-        raise RuntimeError("MongoDB GridFS is not available. Please verify MONGODB_URI.")
-    file_id = fs.put(file_bytes, filename=filename, metadata=metadata or {})
-    return str(file_id)
+    if fs is not None:
+        try:
+            file_id = fs.put(file_bytes, filename=filename, metadata=metadata or {})
+            return str(file_id)
+        except Exception as e:
+            print(f"[GridFS Save Warning] {e}. Using persistent fallback.")
+            
+    # Persistent fallback file
+    file_id = f"gfs_{secrets.token_hex(12)}"
+    fallback_path = GRIDFS_FALLBACK_DIR / f"{file_id}.sqlite"
+    fallback_path.write_bytes(file_bytes)
+    return file_id
 
 def read_file_from_gridfs(file_id_str: str) -> bytes:
-    """Reads binary file contents from GridFS using the ObjectId string."""
+    """Reads binary file contents from GridFS or persistent fallback storage."""
+    _ensure_storage_fallback()
     fs = get_gridfs()
-    if fs is None:
-        raise RuntimeError("MongoDB GridFS is not available. Please verify MONGODB_URI.")
-    obj_id = ObjectId(file_id_str)
-    grid_out = fs.get(obj_id)
-    return grid_out.read()
+    if fs is not None and ObjectId.is_valid(file_id_str):
+        try:
+            obj_id = ObjectId(file_id_str)
+            grid_out = fs.get(obj_id)
+            return grid_out.read()
+        except Exception:
+            pass
+
+    # Check local fallback
+    fallback_path = GRIDFS_FALLBACK_DIR / f"{file_id_str}.sqlite"
+    if fallback_path.exists():
+        return fallback_path.read_bytes()
+
+    raise FileNotFoundError(f"Database archive reference '{file_id_str}' could not be located in GridFS or local storage.")
 
 def delete_file_from_gridfs(file_id_str: str) -> bool:
-    """Deletes a file from GridFS."""
+    """Deletes a file from GridFS and local fallback."""
+    _ensure_storage_fallback()
+    deleted = False
     fs = get_gridfs()
-    if fs is None:
-        return False
-    try:
-        obj_id = ObjectId(file_id_str)
-        fs.delete(obj_id)
-        return True
-    except Exception as e:
-        print(f"[GridFS Delete Error] {e}")
-        return False
+    if fs is not None and ObjectId.is_valid(file_id_str):
+        try:
+            obj_id = ObjectId(file_id_str)
+            fs.delete(obj_id)
+            deleted = True
+        except Exception:
+            pass
+
+    fallback_path = GRIDFS_FALLBACK_DIR / f"{file_id_str}.sqlite"
+    if fallback_path.exists():
+        try:
+            fallback_path.unlink()
+            deleted = True
+        except Exception:
+            pass
+
+    return deleted
 
 
-# --- Database Metadata Operations in MongoDB ---
+# --- Database Metadata Operations in MongoDB & Registry ---
 
 def save_database_meta(meta: Dict[str, Any]):
-    """Upserts database metadata in the 'databases' MongoDB collection."""
-    db = get_mongo_db()
-    if db is None:
-        raise RuntimeError("MongoDB is not available. Please verify MONGODB_URI in backend/.env.")
-    
+    """Upserts database metadata in MongoDB 'databases' collection and persistent local registry."""
+    _ensure_storage_fallback()
     meta_copy = dict(meta)
     if "_id" in meta_copy:
         del meta_copy["_id"]
 
-    db.databases.update_one(
-        {"database_id": meta["database_id"]},
-        {"$set": meta_copy},
-        upsert=True
-    )
+    db = get_mongo_db()
+    if db is not None:
+        try:
+            db.databases.update_one(
+                {"database_id": meta["database_id"]},
+                {"$set": meta_copy},
+                upsert=True
+            )
+        except Exception as e:
+            print(f"[MongoDB Meta Save Warning] {e}")
+
+    # Always persist to local fallback registry as well
+    dbs = _load_fallback_db_meta()
+    existing_idx = next((i for i, d in enumerate(dbs) if d.get("database_id") == meta["database_id"]), -1)
+    if existing_idx >= 0:
+        dbs[existing_idx] = meta_copy
+    else:
+        dbs.insert(0, meta_copy)
+    _save_fallback_db_meta(dbs)
 
 def get_database_meta(database_id: str) -> Optional[Dict[str, Any]]:
-    """Retrieves metadata for a specific database from MongoDB."""
+    """Retrieves metadata for a specific database from MongoDB or local registry."""
     db = get_mongo_db()
-    if db is None:
-        return None
-    doc = db.databases.find_one({"database_id": database_id})
-    if doc and "_id" in doc:
-        doc["_id"] = str(doc["_id"])
-    return doc
+    if db is not None:
+        try:
+            doc = db.databases.find_one({"database_id": database_id})
+            if doc:
+                if "_id" in doc:
+                    doc["_id"] = str(doc["_id"])
+                return doc
+        except Exception:
+            pass
+
+    dbs = _load_fallback_db_meta()
+    for d in dbs:
+        if d.get("database_id") == database_id:
+            return d
+    return None
 
 def list_databases_meta() -> List[Dict[str, Any]]:
-    """Lists all databases registered in MongoDB."""
-    db = get_mongo_db()
-    if db is None:
-        return []
-    cursor = db.databases.find({}).sort("upload_date", pymongo.DESCENDING)
+    """Lists all databases registered in MongoDB or persistent registry."""
+    seen_ids = set()
     results = []
-    for doc in cursor:
-        if "_id" in doc:
-            doc["_id"] = str(doc["_id"])
-        results.append(doc)
+
+    db = get_mongo_db()
+    if db is not None:
+        try:
+            cursor = db.databases.find({}).sort("upload_date", pymongo.DESCENDING)
+            for doc in cursor:
+                db_id = doc.get("database_id")
+                if db_id and db_id not in seen_ids:
+                    if "_id" in doc:
+                        doc["_id"] = str(doc["_id"])
+                    seen_ids.add(db_id)
+                    results.append(doc)
+        except Exception:
+            pass
+
+    # Merge with persistent fallback registry
+    dbs = _load_fallback_db_meta()
+    for d in dbs:
+        db_id = d.get("database_id")
+        if db_id and db_id not in seen_ids:
+            seen_ids.add(db_id)
+            results.append(d)
+
     return results
 
 def delete_database_meta(database_id: str) -> bool:
-    """Deletes database metadata from MongoDB."""
+    """Deletes database metadata from MongoDB and registry."""
     db = get_mongo_db()
-    if db is None:
-        return False
-    res = db.databases.delete_one({"database_id": database_id})
-    return res.deleted_count > 0
+    if db is not None:
+        try:
+            db.databases.delete_one({"database_id": database_id})
+        except Exception:
+            pass
+
+    dbs = _load_fallback_db_meta()
+    new_dbs = [d for d in dbs if d.get("database_id") != database_id]
+    _save_fallback_db_meta(new_dbs)
+    return True
 
 
 # --- Query History Operations in MongoDB ---

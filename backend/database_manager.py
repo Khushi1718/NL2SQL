@@ -224,18 +224,24 @@ class DatabaseManager:
     @classmethod
     def list_databases(cls) -> List[Dict[str, Any]]:
         """
-        Lists all registered databases from MongoDB (with fallback to local storage).
+        Lists all registered databases from MongoDB and persistent registry,
+        always ensuring benchmark database is initialized.
         """
-        mongo_connected, _ = check_mongo_connection()
-        if mongo_connected:
-            cls.ensure_default_benchmark_database()
-            dbs = list_databases_meta()
-            if dbs:
-                return dbs
-
-        # Fallback if MongoDB is not reachable or empty
-        target_path = cls.get_local_db_path(DEFAULT_BENCHMARK_DB_ID)
         cls.ensure_default_benchmark_database()
+        dbs = list_databases_meta()
+        if dbs:
+            # Ensure local SQLite files exist for any registered DB
+            for d in dbs:
+                db_id = d.get("database_id")
+                if db_id and not os.path.exists(cls.get_local_db_path(db_id)):
+                    try:
+                        cls.materialize_database(db_id)
+                    except Exception:
+                        pass
+            return dbs
+
+        # Fallback if registry is empty
+        target_path = cls.get_local_db_path(DEFAULT_BENCHMARK_DB_ID)
         schema_meta = cls.inspect_sqlite_schema(target_path) if os.path.exists(target_path) else {}
 
         return [{
@@ -295,10 +301,6 @@ class DatabaseManager:
         Parses CSV, validates records, infers data types, imports into a new SQLite database,
         stores the database file in MongoDB GridFS, and registers metadata in MongoDB.
         """
-        mongo_connected, mongo_msg = check_mongo_connection()
-        if not mongo_connected:
-            raise RuntimeError(f"MongoDB persistence is unavailable: {mongo_msg}")
-
         # Parse CSV with pandas
         try:
             df = pd.read_csv(io.BytesIO(file_bytes))
@@ -369,10 +371,6 @@ class DatabaseManager:
         Validates an uploaded SQLite database file, stores it locally and in MongoDB GridFS,
         inspects all tables and relationships, and registers metadata in MongoDB.
         """
-        mongo_connected, mongo_msg = check_mongo_connection()
-        if not mongo_connected:
-            raise RuntimeError(f"MongoDB persistence is unavailable: {mongo_msg}")
-
         # Check SQLite header
         if not file_bytes.startswith(b"SQLite format 3\x00"):
             raise ValueError("The uploaded file is not a valid SQLite 3 database.")
