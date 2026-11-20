@@ -1,5 +1,6 @@
+import re
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, field_validator
 from typing import Optional
 from mongo import (
     save_user_mongo,
@@ -10,24 +11,49 @@ from mongo import (
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication & User Accounts"])
 
+def clean_email(v: str) -> str:
+    if not v or "@" not in v:
+        raise ValueError("Invalid email format")
+    return v.strip().lower()
+
 class SignupRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
     name: Optional[str] = None
     role: Optional[str] = "Developer"
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        return clean_email(v)
+
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        return clean_email(v)
+
 class ChangeEmailRequest(BaseModel):
-    old_email: EmailStr
-    new_email: EmailStr
+    old_email: str
+    new_email: str
+
+    @field_validator("old_email", "new_email")
+    @classmethod
+    def validate_emails(cls, v: str) -> str:
+        return clean_email(v)
 
 class ChangePasswordRequest(BaseModel):
-    email: EmailStr
+    email: str
     current_password: str
     new_password: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        return clean_email(v)
 
 @router.post("/signup")
 def signup(req: SignupRequest):
