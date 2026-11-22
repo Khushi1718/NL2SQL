@@ -5,19 +5,41 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
+from dotenv import load_dotenv
 from bson import ObjectId
 import pymongo
 from pymongo import MongoClient
 import gridfs
+import urllib.parse
+import re
+
+# Load backend/.env automatically regardless of launching directory
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv()
+
+def sanitize_mongo_uri(raw_uri: str) -> str:
+    if not raw_uri:
+        return "mongodb://127.0.0.1:27017/querymate"
+    if "<db_password>" in raw_uri or "<password>" in raw_uri:
+        return "mongodb://127.0.0.1:27017/querymate"
+
+    # Strip accidental < > around password: :<pwd>@ -> :pwd@
+    uri = re.sub(r':<([^>]+)>@', r':\1@', raw_uri)
+
+    # URL-encode special characters in password (such as '@') if unescaped
+    m = re.match(r'^(mongodb(?:\+srv)?://)([^:]+):(.*)@([^@/]+.*)$', uri)
+    if m:
+        prefix = m.group(1)
+        user = m.group(2)
+        pwd = m.group(3)
+        rest = m.group(4)
+        if "@" in pwd:
+            pwd = urllib.parse.quote_plus(pwd)
+        return f"{prefix}{user}:{pwd}@{rest}"
+    return uri
 
 raw_uri = os.getenv("MONGODB_URI", "").strip()
-if "<" in raw_uri and ">" in raw_uri:
-    # Contains unconfigured placeholder credentials, fallback to local MongoDB
-    MONGODB_URI = "mongodb://127.0.0.1:27017/querymate"
-elif raw_uri:
-    MONGODB_URI = raw_uri
-else:
-    MONGODB_URI = "mongodb://127.0.0.1:27017/querymate"
+MONGODB_URI = sanitize_mongo_uri(raw_uri)
 
 MONGODB_DB_NAME = os.getenv("MONGODB_DATABASE_NAME", "querymate")
 
@@ -27,37 +49,54 @@ def get_mongo_client() -> Optional[MongoClient]:
     global _client
     if not MONGODB_URI:
         return None
-    if _client is None:
+
+    # If an existing client is cached, verify it is alive and not closed
+    if _client is not None:
         try:
-            _client = MongoClient(
-                MONGODB_URI,
+            _client.admin.command("ping")
+            return _client
+        except Exception:
+            try:
+                _client.close()
+            except Exception:
+                pass
+            _client = None
+
+    # Attempt primary MONGODB_URI
+    try:
+        candidate = MongoClient(
+            MONGODB_URI,
+            serverSelectionTimeoutMS=800,
+            connectTimeoutMS=800
+        )
+        candidate.admin.command("ping")
+        _client = candidate
+        return _client
+    except Exception:
+        try:
+            candidate.close()
+        except Exception:
+            pass
+
+    # If primary URI is different from standard localhost, try localhost fallback
+    if "127.0.0.1:27017" not in MONGODB_URI and "localhost:27017" not in MONGODB_URI:
+        try:
+            candidate = MongoClient(
+                "mongodb://127.0.0.1:27017",
                 serverSelectionTimeoutMS=800,
                 connectTimeoutMS=800
             )
-            # Test connection
-            _client.admin.command("ping")
-        except Exception as e:
-            if _client is not None:
-                try:
-                    _client.close()
-                except Exception:
-                    pass
-                _client = None
+            candidate.admin.command("ping")
+            _client = candidate
+            return _client
+        except Exception:
             try:
-                _client = MongoClient(
-                    "mongodb://127.0.0.1:27017",
-                    serverSelectionTimeoutMS=800,
-                    connectTimeoutMS=800
-                )
-                _client.admin.command("ping")
-            except Exception as e2:
-                if _client is not None:
-                    try:
-                        _client.close()
-                    except Exception:
-                        pass
-                _client = None
-    return _client
+                candidate.close()
+            except Exception:
+                pass
+
+    _client = None
+    return None
 
 def get_mongo_db():
     client = get_mongo_client()
@@ -79,10 +118,11 @@ def check_mongo_connection() -> Tuple[bool, str]:
     if not MONGODB_URI:
         return False, "MONGODB_URI is not configured in backend/.env."
 
+    client = get_mongo_client()
+    if client is None:
+        return False, "Could not connect to MongoDB server. Local SQLite storage active."
+
     try:
-        client = get_mongo_client()
-        if client is None:
-            return False, "Failed to instantiate MongoClient."
         client.admin.command("ping")
         return True, f"Connected to MongoDB ({MONGODB_DB_NAME})"
     except Exception as e:
@@ -368,13 +408,21 @@ def save_user_mongo(email: str, password: str, name: Optional[str] = None, role:
     }
     
     db = get_mongo_db()
+    user_id = None
     if db is not None:
-        existing = db.users.find_one({"email": clean_email})
-        if existing:
-            raise ValueError("An account with this email address already exists.")
-        res = db.users.insert_one(doc)
-        user_id = str(res.inserted_id)
-    else:
+        try:
+            existing = db.users.find_one({"email": clean_email})
+            if existing:
+                raise ValueError("An account with this email address already exists.")
+            res = db.users.insert_one(doc)
+            user_id = str(res.inserted_id)
+        except ValueError:
+            raise
+        except Exception as mongo_err:
+            print(f"[Mongo Auth Save Fallback] {mongo_err}")
+            db = None
+
+    if db is None:
         # File fallback
         users = _load_fallback_users()
         for u in users:
@@ -399,8 +447,13 @@ def authenticate_user_mongo(email: str, password: str) -> Optional[Dict[str, Any
     db = get_mongo_db()
     user_doc = None
     if db is not None:
-        user_doc = db.users.find_one({"email": clean_email})
-    else:
+        try:
+            user_doc = db.users.find_one({"email": clean_email})
+        except Exception as mongo_err:
+            print(f"[Mongo Auth Find Fallback] {mongo_err}")
+            db = None
+
+    if db is None:
         users = _load_fallback_users()
         for u in users:
             if u.get("email") == clean_email:
